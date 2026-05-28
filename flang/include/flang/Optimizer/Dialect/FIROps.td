@@ -3034,9 +3034,11 @@ def fir_ConvertOp
     : fir_SimpleOneResultOp<"convert",
                             [NoMemoryEffect, ViewLikeOpInterface,
                              ConditionallySpeculatable,
-                             DeclareOpInterfaceMethods<PromotableOpInterface,
-                                                       ["getPromotableSlotView",
-                                                        "convertSlotValue"]>,
+                             DeclareOpInterfaceMethods<PromotableOpInterface>,
+                             DeclareOpInterfaceMethods<
+                                 PromotableAliaserInterface,
+                                 ["projectSlotValueToAliasValue",
+                                  "projectAliasValueToSlotValue"]>,
                              fir_FortranObjectViewOpInterface]> {
   let summary = "encapsulates all Fortran entity type conversions";
 
@@ -3564,9 +3566,9 @@ def fir_DeclareOp
                          DeclareOpInterfaceMethods<
                              fir_FortranVariableStorageOpInterface>,
                          DeclareOpInterfaceMethods<PromotableOpInterface,
-                                                   ["getPromotableSlotView",
-                                                    "requiresReplacedValues",
+                                                   ["requiresReplacedValues",
                                                     "visitReplacedValues"]>,
+                         DeclareOpInterfaceMethods<PromotableAliaserInterface>,
                          fir_FortranObjectViewOpInterface]> {
   let summary = "declare a variable";
 
