@@ -5399,8 +5399,9 @@ public:
       bool IsStdInitListInitialization, bool RequiresZeroInit,
       CXXConstructionKind ConstructKind, SourceRange ParenRange);
 
-  ExprResult ConvertMemberDefaultInitExpression(FieldDecl *FD, Expr *InitExpr,
-                                                SourceLocation InitLoc);
+  ExprResult ConvertMemberDefaultInitExpression(
+      FieldDecl *FD, Expr *InitExpr, SourceLocation InitLoc,
+      const InitializedEntity *EnclosingEntity = nullptr);
 
   /// FinalizeVarWithDestructor - Prepare for calling destructor on the
   /// constructed variable.
@@ -7641,7 +7642,9 @@ public:
   /// Emit a warning for all pending noderef expressions that we recorded.
   void WarnOnPendingNoDerefs(ExpressionEvaluationContextRecord &Rec);
 
-  ExprResult BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field);
+  ExprResult
+  BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field,
+                          const InitializedEntity *EnclosingEntity = nullptr);
 
   /// Instantiate or parse a C++ default argument expression as necessary.
   /// Return true on error.

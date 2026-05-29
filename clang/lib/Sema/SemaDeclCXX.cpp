@@ -4178,11 +4178,18 @@ ExprResult Sema::ActOnRequiresClause(ExprResult ConstraintExpr) {
   return ConstraintExpr;
 }
 
-ExprResult Sema::ConvertMemberDefaultInitExpression(FieldDecl *FD,
-                                                    Expr *InitExpr,
-                                                    SourceLocation InitLoc) {
+ExprResult Sema::ConvertMemberDefaultInitExpression(
+    FieldDecl *FD, Expr *InitExpr, SourceLocation InitLoc,
+    const InitializedEntity *EnclosingEntity) {
+  // In aggregate initialization the default member initializer is part of the
+  // enclosing object's initialization, so initialize against the parented
+  // member entity (whose lifetime resolves to the enclosing object). In a
+  // constructor it is its own full-expression, so use the parentless
+  // default-member entity (the member itself is the lifetime anchor).
   InitializedEntity Entity =
-      InitializedEntity::InitializeMemberFromDefaultMemberInitializer(FD);
+      EnclosingEntity
+          ? *EnclosingEntity
+          : InitializedEntity::InitializeMemberFromDefaultMemberInitializer(FD);
   InitializationKind Kind =
       FD->getInClassInitStyle() == ICIS_ListInit
           ? InitializationKind::CreateDirectList(InitExpr->getBeginLoc(),

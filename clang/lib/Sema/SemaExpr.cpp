@@ -5516,10 +5516,38 @@ struct ImmediateCallVisitor : DynamicRecursiveASTVisitor {
 
 struct EnsureImmediateInvocationInDefaultArgs
     : TreeTransform<EnsureImmediateInvocationInDefaultArgs> {
+  using Base = TreeTransform<EnsureImmediateInvocationInDefaultArgs>;
+
   EnsureImmediateInvocationInDefaultArgs(Sema &SemaRef)
       : TreeTransform(SemaRef) {}
 
   bool AlwaysRebuild() { return true; }
+
+  ExprResult TransformInitializer(Expr *Init, bool NotCopyInit) {
+    if (!Init)
+      return Init;
+
+    // A lifetime-extended temporary keeps its extension; binding it would
+    // wrongly destroy it at the end of the full-expression.
+    Expr *Inner = Init;
+    if (auto *FE = dyn_cast<FullExpr>(Inner))
+      Inner = FE->getSubExpr();
+    if (auto *MTE = dyn_cast<MaterializeTemporaryExpr>(Inner);
+        MTE && MTE->getExtendingDecl())
+      return Base::TransformInitializer(Init, NotCopyInit);
+
+    ExprResult Res = Base::TransformInitializer(Init, NotCopyInit);
+    if (Res.isInvalid())
+      return Res;
+
+    // Base TransformInitializer strips CXXBindTemporaryExpr. Restore the
+    // binding so an ordinary temporary (e.g. a closure with an init-capture)
+    // is still destroyed at the end of the enclosing full-expression. Skip if
+    // the rebuild already produced a binding.
+    if (isa<CXXBindTemporaryExpr>(Res.get()))
+      return Res;
+    return SemaRef.MaybeBindToTemporary(Res.get());
+  }
 
   // Lambda can only have immediate invocations in the default
   // args of their parameters, which is transformed upon calling the closure.
@@ -5650,7 +5678,8 @@ static FieldDecl *FindFieldDeclInstantiationPattern(const ASTContext &Ctx,
   return cast<FieldDecl>(*Rng.begin());
 }
 
-ExprResult Sema::BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field) {
+ExprResult Sema::BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field,
+                                         const InitializedEntity *EnclosingEntity) {
   assert(Field->hasInClassInitializer());
 
   CXXThisScopeRAII This(*this, Field->getParent(), Qualifiers());
@@ -5722,7 +5751,8 @@ ExprResult Sema::BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field) {
                                            /*CXXDirectInit=*/false);
     });
     if (!Res.isInvalid())
-      Res = ConvertMemberDefaultInitExpression(Field, Res.get(), Loc);
+      Res = ConvertMemberDefaultInitExpression(Field, Res.get(), Loc,
+                                               EnclosingEntity);
     if (Res.isInvalid()) {
       Field->setInvalidDecl();
       return ExprError();
@@ -5736,6 +5766,17 @@ ExprResult Sema::BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field) {
       runWithSufficientStackSpace(Loc, [&] {
         MarkDeclarationsReferencedInExpr(E, /*SkipLocalVariables=*/false);
       });
+    if (EnclosingEntity) {
+      // Aggregate initialization: the default member initializer is part of the
+      // enclosing full-expression, not its own. Do not wrap it in an
+      // ExprWithCleanups here; leave its cleanup state to merge into the
+      // enclosing context so the enclosing full-expression covers any
+      // temporaries (and lifetime extension is anchored to the enclosing
+      // object, established above via the parented entity).
+      return CXXDefaultInitExpr::Create(Context, InitializationContext->Loc,
+                                        Field, InitializationContext->Context,
+                                        E);
+    }
     if (isInLifetimeExtendingContext())
       DiscardCleanupsInEvaluationContext();
     // C++11 [class.base.init]p7:

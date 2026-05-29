@@ -820,7 +820,7 @@ void InitListChecker::FillInEmptyInitForField(unsigned Init, FieldDecl *Field,
                 .DelayedDefaultInitializationContext;
         SemaRef.currentEvaluationContext().InLifetimeExtendingContext =
             SemaRef.parentEvaluationContext().InLifetimeExtendingContext;
-        DIE = SemaRef.BuildCXXDefaultInitExpr(Loc, Field);
+        DIE = SemaRef.BuildCXXDefaultInitExpr(Loc, Field, &MemberEntity);
       }
       if (DIE.isInvalid()) {
         hadError = true;

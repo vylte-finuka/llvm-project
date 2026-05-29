@@ -708,7 +708,7 @@ void test() {
 // CHECK-NEXT:          "inner": [
 // CHECK-NEXT:           {
 // CHECK-NEXT:            "id": "0x{{.*}}",
-// CHECK-NEXT:            "kind": "InitListExpr",
+// CHECK-NEXT:            "kind": "ExprWithCleanups",
 // CHECK-NEXT:            "range": {
 // CHECK-NEXT:             "begin": {
 // CHECK-NEXT:              "offset": 178,
@@ -728,11 +728,11 @@ void test() {
 // CHECK-NEXT:            "inner": [
 // CHECK-NEXT:             {
 // CHECK-NEXT:              "id": "0x{{.*}}",
-// CHECK-NEXT:              "kind": "CXXDefaultInitExpr",
+// CHECK-NEXT:              "kind": "InitListExpr",
 // CHECK-NEXT:              "range": {
 // CHECK-NEXT:               "begin": {
-// CHECK-NEXT:                "offset": 179,
-// CHECK-NEXT:                "col": 7,
+// CHECK-NEXT:                "offset": 178,
+// CHECK-NEXT:                "col": 6,
 // CHECK-NEXT:                "tokLen": 1
 // CHECK-NEXT:               },
 // CHECK-NEXT:               "end": {
@@ -742,24 +742,22 @@ void test() {
 // CHECK-NEXT:               }
 // CHECK-NEXT:              },
 // CHECK-NEXT:              "type": {
-// CHECK-NEXT:               "qualType": "const A"
+// CHECK-NEXT:               "qualType": "B"
 // CHECK-NEXT:              },
-// CHECK-NEXT:              "valueCategory": "lvalue",
-// CHECK-NEXT:              "hasRewrittenInit": true,
+// CHECK-NEXT:              "valueCategory": "prvalue",
 // CHECK-NEXT:              "inner": [
 // CHECK-NEXT:               {
 // CHECK-NEXT:                "id": "0x{{.*}}",
-// CHECK-NEXT:                "kind": "ExprWithCleanups",
+// CHECK-NEXT:                "kind": "CXXDefaultInitExpr",
 // CHECK-NEXT:                "range": {
 // CHECK-NEXT:                 "begin": {
-// CHECK-NEXT:                  "offset": 147,
-// CHECK-NEXT:                  "line": 8,
-// CHECK-NEXT:                  "col": 16,
+// CHECK-NEXT:                  "offset": 179,
+// CHECK-NEXT:                  "col": 7,
 // CHECK-NEXT:                  "tokLen": 1
 // CHECK-NEXT:                 },
 // CHECK-NEXT:                 "end": {
-// CHECK-NEXT:                  "offset": 152,
-// CHECK-NEXT:                  "col": 21,
+// CHECK-NEXT:                  "offset": 179,
+// CHECK-NEXT:                  "col": 7,
 // CHECK-NEXT:                  "tokLen": 1
 // CHECK-NEXT:                 }
 // CHECK-NEXT:                },
@@ -767,6 +765,7 @@ void test() {
 // CHECK-NEXT:                 "qualType": "const A"
 // CHECK-NEXT:                },
 // CHECK-NEXT:                "valueCategory": "lvalue",
+// CHECK-NEXT:                "hasRewrittenInit": true,
 // CHECK-NEXT:                "inner": [
 // CHECK-NEXT:                 {
 // CHECK-NEXT:                  "id": "0x{{.*}}",
@@ -774,6 +773,7 @@ void test() {
 // CHECK-NEXT:                  "range": {
 // CHECK-NEXT:                   "begin": {
 // CHECK-NEXT:                    "offset": 147,
+// CHECK-NEXT:                    "line": 8,
 // CHECK-NEXT:                    "col": 16,
 // CHECK-NEXT:                    "tokLen": 1
 // CHECK-NEXT:                   },
