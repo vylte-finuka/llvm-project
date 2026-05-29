@@ -25,7 +25,7 @@ entry:
 
 
 ; ---- Globals--------------------------------------------
-; CHECK: @__loadtime_comment_str = internal unnamed_addr constant [24 x i8] c"@(#) Copyright IBM 2025\00", section "__loadtime_comment", align 1
+; CHECK: @__loadtime_comment_str = internal unnamed_addr constant [24 x i8] c"@(#) Copyright IBM 2025\00", section "__loadtime_comment", align 1, !guid ![[#]]
 ; Preservation in llvm.compiler.used sets
 ; CHECK-NEXT: @llvm.compiler.used = appending global [1 x ptr] [ptr @__loadtime_comment_str], section "llvm.metadata"
 ; CHECK-NOT: ![[copyright:[0-9]+]] = !{!"@(#) Copyright IBM 2025"}
