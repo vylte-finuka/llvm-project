@@ -13,7 +13,6 @@ add_offload_test_device_code(global.cpp global)
 add_offload_test_device_code(global_ctor.cpp global_ctor)
 add_offload_test_device_code(global_dtor.cpp global_dtor)
 add_offload_test_device_code(sequence.cpp sequence)
-add_offload_test_device_code(gridsize.cpp gridsize)
 
 add_custom_target(offload_device_binaries DEPENDS
     foo.bin
@@ -30,6 +29,5 @@ add_custom_target(offload_device_binaries DEPENDS
     global_ctor.bin
     global_dtor.bin
     sequence.bin
-    gridsize.bin
 )
 set(OFFLOAD_TEST_DEVICE_CODE_PATH ${CMAKE_CURRENT_BINARY_DIR} PARENT_SCOPE)

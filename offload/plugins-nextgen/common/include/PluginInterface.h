@@ -610,52 +610,19 @@ private:
 
   /// Get the effective number of threads for the kernel based on the
   /// user-defined number of threads.
-<<<<<<< HEAD
   virtual uint32_t getEffectiveNumThreads(GenericDeviceTy &GenericDevice,
                                           uint32_t UserThreadLimit[3]) const;
-=======
-  uint32_t getEffectiveNumThreads(GenericDeviceTy &GenericDevice,
-                                  uint32_t UserThreadLimit) const;
->>>>>>> f15904ec71a8
 
   /// Get the effective number of blocks for the kernel based on the
   /// user-defined number of blocks and the loop trip count.
   /// The number of threads \p NumThreads can be adjusted by this method.
   /// \p IsNumThreadsFromUser is true is \p NumThreads is defined by user via
   /// thread_limit clause.
-<<<<<<< HEAD
   virtual uint32_t getEffectiveNumBlocks(GenericDeviceTy &GenericDevice,
                                          uint32_t UserNumBlocks[3],
                                          uint64_t LoopTripCount,
                                          uint32_t &EffectiveNumThreads,
                                          bool IsNumThreadsFromUser) const;
-=======
-  uint32_t getEffectiveNumBlocks(GenericDeviceTy &GenericDevice,
-                                 uint32_t UserNumBlocks, uint64_t LoopTripCount,
-                                 uint32_t &EffectiveNumThreads,
-                                 bool IsNumThreadsFromUser) const;
-
-  /// Indicate if the kernel works in Generic SPMD, Generic, No-Loop
-  /// or SPMD mode.
-  bool isGenericSPMDMode() const {
-    return KernelEnvironment.Configuration.ExecMode ==
-           OMP_TGT_EXEC_MODE_GENERIC_SPMD;
-  }
-  bool isGenericMode() const {
-    return KernelEnvironment.Configuration.ExecMode ==
-           OMP_TGT_EXEC_MODE_GENERIC;
-  }
-  bool isSPMDMode() const {
-    return KernelEnvironment.Configuration.ExecMode == OMP_TGT_EXEC_MODE_SPMD;
-  }
-  bool isBareMode() const {
-    return KernelEnvironment.Configuration.ExecMode == OMP_TGT_EXEC_MODE_BARE;
-  }
-  bool isNoLoopMode() const {
-    return KernelEnvironment.Configuration.ExecMode ==
-           OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
-  }
->>>>>>> f15904ec71a8
 
   /// The kernel name.
   std::string Name;

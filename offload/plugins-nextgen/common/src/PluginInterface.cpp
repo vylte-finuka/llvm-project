@@ -337,38 +337,8 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   uint32_t EffectiveNumBlocks[3] = {KernelArgs.UserNumBlocks[0],
                                     KernelArgs.UserNumBlocks[1],
                                     KernelArgs.UserNumBlocks[2]};
-<<<<<<< HEAD
   auto DynBlockMemConfOrErr =
       prepareBlockMemory(GenericDevice, KernelArgs, EffectiveNumBlocks[0]);
-=======
-
-  // Multidimensional is only supported with bare mode for now.
-  assert(isBareMode() ||
-         EffectiveNumThreads[1] == 1 && EffectiveNumThreads[2] == 1 &&
-             EffectiveNumBlocks[1] == 1 && EffectiveNumBlocks[2] == 1 &&
-             "Non-bare mode should only use the first thread and block "
-             "dimensions");
-
-  assert(!KernelArgs.Flags.StrictBlocksAndThreads ||
-         EffectiveNumThreads[0] > 0 && EffectiveNumThreads[1] > 0 &&
-             EffectiveNumThreads[2] > 0 && EffectiveNumBlocks[0] > 0 &&
-             EffectiveNumBlocks[1] > 0 && EffectiveNumBlocks[2] > 0 &&
-             "Strict requires number of blocks and threads greater than zero");
-
-  // Calculate or adjust the effective number of threads and blocks if needed.
-  if (!KernelArgs.Flags.StrictBlocksAndThreads) {
-    EffectiveNumThreads[0] =
-        getEffectiveNumThreads(GenericDevice, EffectiveNumThreads[0]);
-
-    EffectiveNumBlocks[0] = getEffectiveNumBlocks(
-        GenericDevice, EffectiveNumBlocks[0], KernelArgs.Tripcount,
-        EffectiveNumThreads[0], KernelArgs.UserThreadLimit[0] > 0);
-  }
-
-  auto DynBlockMemConfOrErr = prepareBlockMemory(
-      GenericDevice, KernelArgs,
-      EffectiveNumBlocks[0] * EffectiveNumBlocks[1] * EffectiveNumBlocks[2]);
->>>>>>> f15904ec71a8
   if (!DynBlockMemConfOrErr)
     return DynBlockMemConfOrErr.takeError();
 
@@ -547,13 +517,12 @@ GenericKernelTy::prepareArgs(GenericDeviceTy &GenericDevice, void **ArgPtrs,
 
 uint32_t
 GenericKernelTy::getEffectiveNumThreads(GenericDeviceTy &GenericDevice,
-                                        uint32_t UserThreadLimit) const {
+                                        uint32_t UserThreadLimit[3]) const {
   assert(!isBareMode() && "bare kernel should not call this function");
 
-  if (UserThreadLimit > 0 && isGenericMode())
-    UserThreadLimit += GenericDevice.getWarpSize();
+  assert(UserThreadLimit[1] == 1 && UserThreadLimit[2] == 1 &&
+         "Multi dimensional launch not supported yet.");
 
-<<<<<<< HEAD
   if (UserThreadLimit[0] > 0 && isGenericMode()) {
     if (UserThreadLimit[0] == (uint32_t)-1)
       UserThreadLimit[0] = PreferredNumThreads;
@@ -564,23 +533,22 @@ GenericKernelTy::getEffectiveNumThreads(GenericDeviceTy &GenericDevice,
   return std::min(MaxNumThreads, (UserThreadLimit[0] > 0)
                                      ? UserThreadLimit[0]
                                      : PreferredNumThreads);
-=======
-  return std::min(MaxNumThreads, (UserThreadLimit > 0) ? UserThreadLimit
-                                                       : PreferredNumThreads);
->>>>>>> f15904ec71a8
 }
 
 uint32_t GenericKernelTy::getEffectiveNumBlocks(
-    GenericDeviceTy &GenericDevice, uint32_t UserNumBlocks,
+    GenericDeviceTy &GenericDevice, uint32_t UserNumBlocks[3],
     uint64_t LoopTripCount, uint32_t &EffectiveNumThreads,
     bool IsNumThreadsFromUser) const {
   assert(!isBareMode() && "bare kernel should not call this function");
 
-  if (UserNumBlocks > 0) {
+  assert(UserNumBlocks[1] == 1 && UserNumBlocks[2] == 1 &&
+         "Multi dimensional launch not supported yet.");
+
+  if (UserNumBlocks[0] > 0) {
     // TODO: We need to honor any value and consequently allow more than the
     // block limit. For this we might need to start multiple kernels or let the
     // blocks start again until the requested number has been started.
-    return std::min(UserNumBlocks, GenericDevice.getBlockLimit());
+    return std::min(UserNumBlocks[0], GenericDevice.getBlockLimit());
   }
 
   // Return the number of blocks required to cover the loop iterations.
