@@ -156,17 +156,17 @@ public:
 };
 
 /// kmp_vector is a vector class for managing small vectors.
-/// inline_threshold: Number of elements in the inline array. If exceeded, the
+/// INLINE_THRESHOLD: Number of elements in the inline array. If exceeded, the
 /// vector will grow dynamically.
-template <typename T, size_t inline_threshold = 8> class kmp_vector final {
+template <typename T, size_t INLINE_THRESHOLD = 8> class kmp_vector final {
   static_assert(std::is_copy_constructible_v<T>,
                 "T must be copy constructible");
   static_assert(std::is_destructible_v<T>, "T must be destructible");
 
-  T inline_data[inline_threshold];
+  T inline_data[INLINE_THRESHOLD];
   T *data = inline_data;
   size_t count = 0;
-  size_t capacity = inline_threshold;
+  size_t capacity = INLINE_THRESHOLD;
 
   void copy_data(T *dst, const T *src, size_t num_elements) {
     if constexpr (std::is_trivially_copyable_v<T>) {
@@ -177,21 +177,25 @@ template <typename T, size_t inline_threshold = 8> class kmp_vector final {
     }
   }
 
+  /// Grow by ~1.5x
   void grow() {
     size_t new_capacity = capacity + (capacity / 2) + 1;
     resize(new_capacity);
   }
 
   void init(size_t new_capacity, const T *init_data, size_t new_count) {
-    assert(new_capacity >= new_count);
-    if (new_capacity > inline_threshold)
+    assert(new_capacity >= new_count &&
+           "more elements requested than capacity");
+    if (new_capacity > INLINE_THRESHOLD)
       resize(new_capacity);
     if (init_data)
       copy_data(data, init_data, new_count);
     count = new_count;
   }
 
+  /// Move data from other vector to this vector (which must be emptied before)
   void move_from(kmp_vector &&other) {
+    assert(empty() && "must be empty before overwriting");
     if (other.data == other.inline_data) {
       // Cannot move inline data, must copy.
       init(other.capacity, other.data, other.count);
@@ -211,11 +215,11 @@ template <typename T, size_t inline_threshold = 8> class kmp_vector final {
     }
     data = inline_data;
     count = 0;
-    capacity = inline_threshold;
+    capacity = INLINE_THRESHOLD;
   }
 
-  // resize only changes the capacity, not the size (i.e., the number of
-  // actually used elements)
+  /// resize only changes the capacity, not the size (i.e., the number of
+  /// actually used elements)
   void resize(size_t new_capacity) {
     // Currently only supports growing the capacity. (Consequently, doesn't need
     // to worry about going from a dynamic array back to an inline array.)
@@ -261,7 +265,7 @@ public:
     return *this;
   }
 
-  // Destroy all elements in the vector. Doesn't free the memory.
+  /// Destroy all elements in the vector. Doesn't free the memory.
   void clear() {
     if constexpr (!std::is_trivially_destructible_v<T>) {
       for (size_t i = 0; i < count; i++)
@@ -270,9 +274,9 @@ public:
     count = 0;
   }
 
-  // Check if the vector contains the given value.
-  // If a comparator is provided, it will be used to compare the values.
-  // Otherwise, the equality operator will be used.
+  /// Check if the vector contains the given value.
+  /// If a comparator is provided, it will be used to compare the values.
+  /// Otherwise, the equality operator will be used.
   bool contains(const T &value,
                 bool (*comp)(const T &, const T &) = nullptr) const {
     for (size_t i = 0; i < count; i++) {
@@ -284,9 +288,9 @@ public:
 
   bool empty() const { return !count; }
 
-  // Check if the two vectors are equal with set semantics.
-  // Current implementation is naive O(n^2) and not optimized for performance.
-  // Handles duplicates correctly.
+  /// Check if the two vectors are equal with set semantics.
+  /// Current implementation is naive O(n^2) and not optimized for performance.
+  /// Handles duplicates correctly.
   bool is_set_equal(const kmp_vector &other,
                     bool (*comp)(const T &, const T &) = nullptr) const {
     for (const T &val : *this) {
@@ -300,19 +304,18 @@ public:
     return true;
   }
 
-  // Add a new element to the end of the vector.
+  /// Add a new element to the end of the vector.
   void push_back(const T &value) {
     if (count == capacity)
       grow();
-    if constexpr (std::is_trivially_copyable_v<T>) {
+    if constexpr (std::is_trivially_copyable_v<T>)
       data[count++] = value;
-    } else {
+    else
       new (&data[count++]) T(value);
-    }
   }
 
-  // Reserve space for the given number of elements.
-  // (Note: does not shrink the vector.)
+  /// Reserve space for the given number of elements.
+  /// (Note: does not shrink the vector.)
   void reserve(size_t new_capacity) {
     if (new_capacity > capacity)
       resize(new_capacity);
@@ -329,7 +332,7 @@ public:
     return data[index];
   }
 
-  // Iterator support (raw pointers work as iterators for contiguous storage)
+  /// Iterator support (raw pointers work as iterators for contiguous storage)
   T *begin() { return data; }
   T *end() { return data + count; }
   const T *begin() const { return data; }
