@@ -491,15 +491,15 @@ GitHub account. In case you don't get notification from GitHub, go to
 [Invitation Link](https://github.com/orgs/llvm/invitation) directly. Once
 you accept the invitation, you'll get commit access.
 
-Prior to obtaining commit access, it is common practice to request that someone
-with commit access commits on your behalf. When doing so, please provide the
-name and email address you would like to use in the Author property of the
-commit.
+Prior to obtaining commit access, it is common practice to request that
+someone with commit access commits on your behalf. When doing so, please
+provide the name and email address you would like to use in the Author
+property of the commit.
 
-For external tracking purposes, committed changes are automatically reflected
-on a commits mailing list soon after the commit lands (e.g.
-<llvm-commits@lists.llvm.org>). Note that these mailing lists are moderated,
-and it is not unusual for a large commit to require a moderator to approve the
+For external tracking purposes, committed changes are automatically reflected on
+a commits mailing list soon after the commit lands (e.g.
+<llvm-commits@lists.llvm.org>). Note that these mailing lists are moderated, and
+it is not unusual for a large commit to require a moderator to approve the
 email, so do not be concerned if a commit does not immediately appear in the
 archives.
 
@@ -597,12 +597,12 @@ change. Some tips:
   (into a logical progression), simplifies code review and reduces the chance
   that you will get negative feedback on the change. Small increments also
   facilitate the maintenance of a high quality code base.
-- Often, an independent precursor to a big change is to add a new API and
-  slowly migrate clients to use the new API. Each change to use the new API
-  is often "obvious" and can be committed without review. Once the new API
-  is in place and used, it is much easier to replace the underlying
-  implementation of the API. This implementation change is logically separate
-  from the API change.
+- Often, an independent precursor to a big change is to add a new API and slowly
+  migrate clients to use the new API.  Each change to use the new API is often
+  "obvious" and can be committed without review.  Once the new API is in place
+  and used, it is much easier to replace the underlying implementation of the
+  API.  This implementation change is logically separate from the API
+  change.
 
 If you are interested in making a large change, and this scares you, please
 make sure to first {ref}`discuss the change/gather consensus <discuss the
@@ -620,11 +620,11 @@ or any other potentially disruptive situation thought to be worth raising
 awareness of. For such changes, the following should be done:
 
 - When performing the code review for the change, please add any applicable
-  "vendors" github team to the review for their awareness. The purpose of
-  these groups is to give vendors early notice that potentially disruptive
-  changes are being considered but have not yet been accepted. Vendors can
-  give early testing feedback on the changes to alert us to unacceptable
-  breakages. The current list of vendor groups is:
+  "vendors" github team to the review for their awareness. The purpose of these
+  groups is to give vendors early notice that potentially disruptive changes
+  are being considered but have not yet been accepted. Vendors can give early
+  testing feedback on the changes to alert us to unacceptable breakages. The
+  current list of vendor groups is:
 
   - [Clang vendors](https://github.com/orgs/llvm/teams/clang-vendors)
   - [libc++ vendors](https://github.com/orgs/llvm/teams/libcxx-vendors)
@@ -644,13 +644,13 @@ awareness of. For such changes, the following should be done:
   disruptive changes described in the release notes should be posted to the
   [Announcements](https://discourse.llvm.org/c/announce/) channel on
   Discourse. The post should be tagged with the `potentially-breaking` label
-  and a label specific to the project (such as `clang`, `llvm`, etc). This is
-  another mechanism by which we can give pre-release notice to users about
+  and a label specific to the project (such as `clang`, `llvm`, etc). This
+  is another mechanism by which we can give pre-release notice to users about
   potentially disruptive changes. It is a lower-traffic alternative to the
-  joining "vendors" group. To automatically be notified of new
-  announcements with the `potentially-breaking` label, go to your user
-  preferences page in Discourse, and add the label to one of the watch
-  categories under `Notifications->Tags`.
+  joining "vendors" group. To automatically be notified of new announcements
+  with the `potentially-breaking` label, go to your user preferences page in
+  Discourse, and add the label to one of the watch categories under
+  `Notifications->Tags`.
 
 ### Attribution of Changes
 
@@ -673,20 +673,20 @@ etc.). The author should first submit them as a GitHub issue, to the relevant
 category on Discourse, or ideally as a GitHub Pull Request. If someone sends you
 a patch privately, encourage them to submit it as a GitHub PR first.
 
-Our previous version control system (subversion) did not distinguish between
-the author and the committer like git does. As such, older commits used a
-different attribution mechanism. The previous method was to include "Patch by
-John Doe." in a separate line of the commit message and there are automated
-processes that rely on this format.
+Our previous version control system (subversion) did not distinguish between the
+author and the committer like git does. As such, older commits used a different
+attribution mechanism. The previous method was to include "Patch by John Doe."
+in a separate line of the commit message and there are automated processes that
+rely on this format.
 
 ### Bans
 
 The goal of a ban is to protect people in the community from having to interact
-with people who are consistently not respecting the {ref}`LLVM Community Code
-of Conduct` in LLVM project spaces. Contributions of any variety (pull
-requests, issue reports, forum posts, etc.) require interacting with the
-community. Therefore, we do not accept any form of direct contribution from a
-banned individual.
+with people who are consistently not respecting the
+{ref}`LLVM Community Code of Conduct` in LLVM project spaces. Contributions of
+any variety (pull requests, issue reports, forum posts, etc.) require
+interacting with the community. Therefore, we do not accept any form of direct
+contribution from a banned individual.
 
 Indirect contributions are permissible only by someone taking full ownership of
 such a contribution and they are responsible for all related interactions with
@@ -724,21 +724,20 @@ for llvm users and not imposing a big burden on llvm developers:
 
 ### C API Changes
 
-- Stability Guarantees: The C API is, in general, a "best effort" for
-  stability. This means that we make every attempt to keep the C API stable,
-  but that stability will be limited by the abstractness of the interface and
-  the stability of the C++ API that it wraps. In practice, this means that
-  things like "create debug info" or "create this type of instruction"
-  are likely to be less stable than "take this IR file and JIT it for my
-  current machine".
-- Release stability: We won't break the C API on the release branch with
-  patches that go on that branch, with the exception that we will fix an
-  unintentional C API break that will keep the release consistent with both
-  the previous and next release.
+- Stability Guarantees: The C API is, in general, a "best effort" for stability.
+  This means that we make every attempt to keep the C API stable, but that
+  stability will be limited by the abstractness of the interface and the
+  stability of the C++ API that it wraps. In practice, this means that things
+  like "create debug info" or "create this type of instruction" are likely to be
+  less stable than "take this IR file and JIT it for my current machine".
+- Release stability: We won't break the C API on the release branch with patches
+  that go on that branch, with the exception that we will fix an unintentional
+  C API break that will keep the release consistent with both the previous and
+  next release.
 - Testing: Patches to the C API are expected to come with tests just like any
   other patch.
-- Including new things into the API: If an LLVM subcomponent has a C API
-  already included, then expanding that C API is acceptable. Adding C API for
+- Including new things into the API: If an LLVM subcomponent has a C API already
+  included, then expanding that C API is acceptable. Adding C API for
   subcomponents that don't currently have one needs to be discussed on the
   [LLVM Discourse forums](https://discourse.llvm.org) for design and
   maintainability feedback prior to implementation.
@@ -754,13 +753,13 @@ codebase can use newer versions of C++ as they get standardized. Requiring newer
 toolchains to build LLVM can be painful for those building LLVM; therefore, it
 will only be done through the following process:
 
-- It is a general goal to support LLVM and GCC versions from the last 3
-  years at a minimum. This time-based guideline is not strict: we may
-  support much older compilers, or decide to support fewer versions.
+- It is a general goal to support LLVM and GCC versions from the last 3 years
+  at a minimum. This time-based guideline is not strict: we may support much
+  older compilers, or decide to support fewer versions.
 - An RFC is sent to the [LLVM Discourse forums](https://discourse.llvm.org)
-  - Detail upsides of the version increase (e.g. which newer C++ language
-    or library features LLVM should use; avoid miscompiles in particular
-    compiler versions, etc).
+  - Detail upsides of the version increase (e.g. which newer C++ language or
+    library features LLVM should use; avoid miscompiles in particular compiler
+    versions, etc).
   - Detail downsides on important platforms (e.g. Ubuntu LTS status).
   - See the {doc}`RFC process <RFCProcess>` documentation for more
     details.
@@ -844,10 +843,10 @@ components into the LLVM world, depending on the degree of detail and
 responsibility required. *Core* projects need a higher degree of scrutiny
 than *peripheral* projects, and the latter may have additional differences.
 
-However, this is really only intended to cover common cases that we have seen
-arise: different situations are different, and we are open to discussing
-unusual cases as well - just start an RFC thread on the [LLVM Discourse
-forums](https://discourse.llvm.org).
+However, this is really only intended to cover common cases
+that we have seen arise: different situations are different, and we are open
+to discussing unusual cases as well - just start an RFC thread on the
+[LLVM Discourse forums](https://discourse.llvm.org).
 
 ### Adding a New Target
 
@@ -904,11 +903,11 @@ In addition, the rules for a back-end to be promoted to **official** are:
   as well as the {doc}`coding standards<CodingStandards>`. Any exceptions that
   were made to move into experimental mode must have been fixed **before**
   becoming official.
-- The test coverage needs to be broad and well written (small tests, well
-  documented). The build target `check-all` must pass with the new target
-  built, and where applicable, the `test-suite` must also pass without
-  errors, in at least one configuration (publicly demonstrated, for example,
-  via buildbots).
+- The test coverage needs to be broad and well written (small tests,
+  well documented). The build target `check-all` must pass with the
+  new target built, and where applicable, the `test-suite` must also
+  pass without errors, in at least one configuration (publicly
+  demonstrated, for example, via buildbots).
 - Public buildbots need to be created and actively maintained, unless
   the target requires no additional buildbots (ex. `check-all` covers
   all tests). The more relevant and public the new target's CI infrastructure
@@ -919,9 +918,9 @@ To **continue** as a supported and official target:
 - The maintainer(s) must continue following these rules throughout the lifetime
   of the target. Continuous violations of aforementioned rules and policies
   could lead to complete removal of the target from the code base.
-- Degradation in support, documentation or test coverage will make the target
-  as nuisance to other targets and be considered a candidate for deprecation
-  and ultimately removed.
+- Degradation in support, documentation or test coverage will make the target as
+  nuisance to other targets and be considered a candidate for deprecation and
+  ultimately removed.
 
 In essence, these rules are necessary for targets to gain and retain their
 status, but also markers to define bit-rot, and will be used to clean up the
@@ -933,22 +932,21 @@ Those wishing to add a new target to LLVM must follow the procedure below:
    minor issues, your community will be responsible for making all necessary
    adjustments soon after the initial merge.
 2. Send a request for comment (RFC) to the [LLVM Discourse
-   forums](https://discourse.llvm.org) describing your target and how it
-   follows all the requirements and what work has been done and will need to
-   be done to accommodate the official target requirements. Make sure to
-   expose any and all controversial issues, changes needed in the base code,
-   table gen, etc. See the {doc}`RFC process <RFCProcess>` documentation for
-   more details.
+   forums](https://discourse.llvm.org) describing
+   your target and how it follows all the requirements and what work has been
+   done and will need to be done to accommodate the official target requirements.
+   Make sure to expose any and all controversial issues, changes needed in the
+   base code, table gen, etc. See the {doc}`RFC process <RFCProcess>`
+   documentation for more details.
 3. Once the response is positive, the LLVM community can start reviewing the
-   actual patches (but they can be prepared before, to support the RFC).
-   Create a sequence of N patches, numbered '1/N' to 'N/N' (make sure N is an
-   actual number, not the letter 'N'), that completes the basic structure of
-   the target.
-4. The initial patch should add documentation, maintainers, and triple support
-   in clang and LLVM. The following patches add TableGen infrastructure to
-   describe the target and lower instructions to assembly. The final patch
-   must show that the target can lower correctly with extensive LIT tests (IR
-   to MIR, MIR to ASM, etc).
+   actual patches (but they can be prepared before, to support the RFC). Create
+   a sequence of N patches, numbered '1/N' to 'N/N' (make sure N is an actual
+   number, not the letter 'N'), that completes the basic structure of the target.
+4. The initial patch should add documentation, maintainers, and triple support in
+   clang and LLVM. The following patches add TableGen infrastructure to describe
+   the target and lower instructions to assembly. The final patch must show that
+   the target can lower correctly with extensive LIT tests (IR to MIR, MIR to
+   ASM, etc).
 5. Some patches may be approved before others, but only after *all* patches are
    approved that the whole set can be merged in one go. This is to guarantee
    that all changes are good as a single block.
@@ -956,9 +954,9 @@ Those wishing to add a new target to LLVM must follow the procedure below:
    start working asynchronously on the target to complete support. They should
    still seek review from those who helped them in the initial phase, to make
    sure the progress is still consistent.
-7. Once all official requirements have been fulfilled (as above), the
-   maintainers should request the target to be enabled by default by sending
-   another RFC to the [LLVM Discourse forums](https://discourse.llvm.org).
+7. Once all official requirements have been fulfilled (as above), the maintainers
+   should request the target to be enabled by default by sending another RFC to
+   the [LLVM Discourse forums](https://discourse.llvm.org).
 
 ### Adding an Established Project To the LLVM Monorepo
 
@@ -972,25 +970,24 @@ subcommunities to collaborate.
 Like new targets, most projects already in the monorepo are considered to be in
 the *core tier* of our {doc}`support policy<SupportPolicy>`. The burden to add
 things to the LLVM monorepo needs to be very high - code that is added to this
-repository is checked out by everyone in the community. As such, we hold
+repository is checked out by everyone in the community.  As such, we hold
 components to a high bar similar to "official targets", they:
 
 - Must be generally aligned with the mission of the LLVM project to advance
   compilers, languages, tools, runtimes, etc.
 - Must conform to all of the policies laid out in this developer policy
-  document, including license, patent, coding standards, and code of
-  conduct.
-- Must have an active community that maintains the code, including
-  established maintainers.
+  document, including license, patent, coding standards, and code of conduct.
+- Must have an active community that maintains the code, including established
+  maintainers.
 - Should have reasonable documentation about how it works, including a high
   quality README file.
 - Should have CI to catch breakage within the project itself or due to
   underlying LLVM dependencies.
-- Should have code free of issues the community finds contentious, or be on
-  a clear path to resolving them.
-- Must be proposed through the LLVM RFC process, and have its addition
-  approved by the LLVM community - this ultimately mediates the resolution
-  of the "should" concerns above. See the {doc}`RFC process <RFCProcess>`
+- Should have code free of issues the community finds contentious, or be on a
+  clear path to resolving them.
+- Must be proposed through the LLVM RFC process, and have its addition approved
+  by the LLVM community - this ultimately mediates the resolution of the
+  "should" concerns above. See the {doc}`RFC process <RFCProcess>`
   documentation for more details.
 
 If you have a project that you think would make sense to add to the LLVM
@@ -1005,11 +1002,11 @@ see the "Incubating New Projects" section.
 ### Incubating New Projects
 
 The burden to add a new project to the LLVM monorepo is intentionally very high,
-but that can have a chilling effect on new and innovative projects. To help
+but that can have a chilling effect on new and innovative projects.  To help
 foster these sorts of projects, LLVM supports an "incubator" process that is
-much easier to get started with. It provides space for potentially valuable,
+much easier to get started with.  It provides space for potentially valuable,
 new top-level and sub-projects to reach a critical mass before they have enough
-code to prove their utility and grow a community. This also allows
+code to prove their utility and grow a community.  This also allows
 collaboration between teams that already have permissions to make contributions
 to projects under the LLVM umbrella.
 
@@ -1039,7 +1036,7 @@ criteria:
   documentation for more details.
 
 That said, the project need not have any code to get started, and need not have
-an established community at all! Furthermore, incubating projects may pass
+an established community at all!  Furthermore, incubating projects may pass
 through transient states that violate the "Should" guidelines above, or would
 otherwise make them unsuitable for direct inclusion in the monorepo (e.g.
 dependencies that have not yet been factored appropriately, leveraging
@@ -1053,8 +1050,8 @@ When approved, the llvm-admin group can grant the new project:
 - Other infrastructure integration can be discussed on a case-by-case basis.
 
 Graduation to the mono-repo would follow existing processes and standards for
-becoming a first-class part of the monorepo. Similarly, an incubating project
-may be eventually retired, but no process has been established for that yet. If
+becoming a first-class part of the monorepo.  Similarly, an incubating project
+may be eventually retired, but no process has been established for that yet.  If
 and when this comes up, please start an RFC discussion on the [LLVM Discourse
 forums](https://discourse.llvm.org).
 
@@ -1065,7 +1062,7 @@ this.
 Suggested disclaimer for the project README and the main project web page:
 
     This project is participating in the LLVM Incubator process: as such, it is
-    not part of any official LLVM release. While incubation status is not
+    not part of any official LLVM release.  While incubation status is not
     necessarily a reflection of the completeness or stability of the code, it
     does indicate that the project is not yet endorsed as a component of LLVM.
 
@@ -1099,23 +1096,21 @@ order):
 
 - **Maintenance:** The pass (and any analyses it depends on) must have at
   least one maintainer.
-- **Usefulness:** There should be evidence that the pass improves
-  performance (or whatever metric it optimizes for) on real-world
-  workloads. Improvements seen only on synthetic benchmarks may be
-  insufficient.
-- **Compile-Time:** The pass should not have a large impact on
-  compile-time, where the evaluation of what "large" means is up to
-  reviewer discretion, and may differ based on the value the pass provides.
-  In any case, it is expected that a concerted effort has been made to
-  mitigate the compile-time impact, both for the average case, and for
-  pathological cases.
+- **Usefulness:** There should be evidence that the pass improves performance
+  (or whatever metric it optimizes for) on real-world workloads. Improvements
+  seen only on synthetic benchmarks may be insufficient.
+- **Compile-Time:** The pass should not have a large impact on compile-time,
+  where the evaluation of what "large" means is up to reviewer discretion, and
+  may differ based on the value the pass provides. In any case, it is expected
+  that a concerted effort has been made to mitigate the compile-time impact,
+  both for the average case, and for pathological cases.
 - **Correctness:** The pass should have no known correctness issues (except
-  global correctness issues that affect all of LLVM). If an old pass is
-  being enabled (rather than implementing a new one incrementally),
-  additional due diligence is required. The pass should be fully reviewed
-  to ensure that it still complies with current quality standards. Fuzzing
-  with disabled profitability checks may help gain additional confidence in
-  the implementation.
+  global correctness issues that affect all of LLVM). If an old pass is being
+  enabled (rather than implementing a new one incrementally), additional due
+  diligence is required. The pass should be fully reviewed to ensure that it
+  still complies with current quality standards. Fuzzing with disabled
+  profitability checks may help gain additional confidence in the
+  implementation.
 
 If non-trivial issues are found in a newly enabled pass, it may be temporarily
 disabled again, until the issues have been resolved.
@@ -1128,19 +1123,19 @@ disabled again, until the issues have been resolved.
 This section deals with legal matters but does not provide legal advice. We are not lawyers \-\-- please seek legal counsel from a licensed attorney.
 ```
 
-This section addresses the issues of copyright, license and patents for the
-LLVM project. The copyright for the code is held by the contributors of the
-code. The code is licensed under permissive {ref}`open source licensing terms
-<open source licensing terms>`, namely the Apache-2.0 with LLVM-exception
-license, which includes a copyright and {ref}`patent license <patent license>`.
-When you contribute code to the LLVM project, you license it under these terms.
+This section addresses the issues of copyright, license and patents for the LLVM
+project.  The copyright for the code is held by the contributors of the code.
+The code is licensed under permissive {ref}`open source licensing terms <open
+source licensing terms>`, namely the Apache-2.0 with LLVM-exception license,
+which includes a copyright and {ref}`patent license <patent license>`. When you
+contribute code to the LLVM project, you license it under these terms.
 
-In certain circumstances, code licensed under other licenses can be added to
-the codebase. However, this may only be done with approval of the LLVM
+In certain circumstances, code licensed under other licenses can be added
+to the codebase.  However, this may only be done with approval of the LLVM
 Foundation Board of Directors, and contributors should plan for the approval
-process to take at least 4-6 weeks. If you would like to contribute code under
-a different license, please create a pull request with the code you want to
-contribute and email <board@llvm.org> requesting a review.
+process to take at least 4-6 weeks.  If you would like to contribute code
+under a different license, please create a pull request with the code
+you want to contribute and email <board@llvm.org> requesting a review.
 
 If you have questions or comments about these topics, please ask on the [LLVM
 Discourse forums](https://discourse.llvm.org). However, please realize that
@@ -1157,11 +1152,11 @@ the terms of the open source license you contributed it under: the license for
 your contributions cannot be changed in the future without your approval.
 
 Because the LLVM project does not require copyright assignments, changing the
-LLVM license requires tracking down the contributors to LLVM and getting them
-to agree that a license change is acceptable for their contributions. We feel
-that a high burden for relicensing is good for the project, because
-contributors do not have to fear that their code will be used in a way with
-which they disagree.
+LLVM license requires tracking down the
+contributors to LLVM and getting them to agree that a license change is
+acceptable for their contributions.  We feel that a high burden for relicensing
+is good for the project, because contributors do not have to fear that their
+code will be used in a way with which they disagree.
 
 #### Embedded Copyright or 'Contributed by' Statements
 
@@ -1194,15 +1189,16 @@ OpenMP, etc), Polly, and all other subprojects. There are a few exceptions:
 - Code imported from other projects (e.g. Google Test, Autoconf, etc) will
   remain as it is. This code isn't developed as part of the LLVM project, it
   is used by LLVM.
-- Some subprojects are impractical or uninteresting to relicense (e.g.
-  llvm-gcc and dragonegg). These will be split off from the LLVM project
-  (e.g. to separate GitHub projects), allowing interested people to continue
-  their development elsewhere.
+- Some subprojects are impractical or uninteresting to relicense (e.g. llvm-gcc
+  and dragonegg). These will be split off from the LLVM project (e.g. to
+  separate GitHub projects), allowing interested people to continue their
+  development elsewhere.
 
-To relicense LLVM, we will be seeking approval from all of the copyright
-holders of code in the repository, or potentially remove/rewrite code if we
-cannot. This is a large and challenging project which will take a significant
-amount of time to complete.
+To relicense LLVM, we will be seeking approval from all of the copyright holders
+of code in the repository, or potentially remove/rewrite code if we cannot.
+This is a large
+and challenging project which will take a significant amount of time to
+complete.
 
 Starting on 2024-06-01 (first of June 2024), new contributions only need to
 be covered by the new LLVM license, i.e. Apache-2.0 WITH LLVM-exception.
@@ -1218,10 +1214,10 @@ Relicensing Agreement" to relicense your contributions under the new license.
 ### New LLVM Project License Framework
 
 Contributions to LLVM are licensed under the [Apache License, Version
-2.0](https://www.apache.org/licenses/LICENSE-2.0), with two limited exceptions
-intended to ensure that LLVM is very permissively licensed. Collectively, the
-name of this license is "Apache 2.0 License with LLVM exceptions". The
-exceptions read:
+2.0](https://www.apache.org/licenses/LICENSE-2.0), with two limited
+exceptions intended to ensure that LLVM is very permissively licensed.
+Collectively, the name of this license is "Apache 2.0 License with LLVM
+exceptions". The exceptions read:
 
     ---- LLVM Exceptions to the Apache 2.0 License ----
 
@@ -1242,7 +1238,7 @@ exceptions read:
 We intend to keep LLVM perpetually open source and available under a permissive
 license - this fosters the widest adoption of LLVM by
 **allowing commercial products to be derived from LLVM** with few restrictions
-and without a requirement for making any derived works also open source. In
+and without a requirement for making any derived works also open source.  In
 particular, LLVM's license is not a "copyleft" license like the GPL.
 
 The "Apache 2.0 License with LLVM exceptions" allows you to:
@@ -1261,7 +1257,7 @@ However, it imposes these limitations on you:
   strip the copyright headers off or replace them with your own.
 - Binaries that include LLVM must reproduce the copyright notice (e.g. in an
   included README file or in an "About" box), unless the LLVM code was added as
-  a by-product of compilation. For example, if an LLVM runtime library like
+  a by-product of compilation.  For example, if an LLVM runtime library like
   compiler_rt or libc++ was automatically included into your application by the
   compiler, you do not need to attribute it.
 - You can't use our names to promote your products (LLVM derived or not) -
@@ -1270,7 +1266,7 @@ However, it imposes these limitations on you:
 - There's no warranty on LLVM at all.
 
 We want LLVM code to be widely used, and believe that this provides a model
-that is great for contributors and users of the project. For more information
+that is great for contributors and users of the project.  For more information
 about the Apache 2.0 License, please see the [Apache License
 FAQ](http://www.apache.org/foundation/license-faq.html), maintained by the
 Apache Project.
@@ -1278,20 +1274,20 @@ Apache Project.
 (patent license)=
 ### Patents
 
-Section 3 of the Apache 2.0 license is a patent grant under which contributors
-of code to the project contribute the rights to use any of their patents that
-would otherwise be infringed by that code contribution (protecting uses of that
-code). Further, the patent grant is revoked from anyone who files a patent
-lawsuit about code in LLVM - this protects the community by providing a
-"patent commons" for the code base and reducing the odds of patent lawsuits
-in general.
+Section 3 of the Apache 2.0 license is a patent grant under which
+contributors of code to the project contribute the rights to use any of
+their patents that would otherwise be infringed by that code contribution
+(protecting uses of that code). Further, the patent grant is revoked
+from anyone who files a patent lawsuit about code in LLVM - this protects the
+community by providing a "patent commons" for the code base and reducing the
+odds of patent lawsuits in general.
 
 The license specifically scopes which patents are included with code
 contributions. To help explain this, the [Apache License
-FAQ](http://www.apache.org/foundation/license-faq.html) explains this scope
-using some questions and answers, which we reproduce here for your convenience
-(for reference, the "ASF" is the Apache Software Foundation, the guidance
-still holds though):
+FAQ](http://www.apache.org/foundation/license-faq.html) explains this scope using
+some questions and answers, which we reproduce here for your convenience (for
+reference, the "ASF" is the Apache Software Foundation, the guidance still
+holds though):
 
     Q1: If I own a patent and contribute to a Work, and, at the time my
     contribution is included in that Work, none of my patent's claims are subject
@@ -1328,13 +1324,17 @@ still holds though):
 ### Legacy License Structure
 
 ```{note}
-
-The code base was previously licensed under the Terms described here. We are in the middle of relicensing to a new approach (described above). More than 99% of all contributions made to LLVM are covered by the Apache-2.0 WITH LLVM-exception license. A small portion of LLVM code remains exclusively covered by the legacy license. Contributions after 2024-06-01 are covered exclusively by the new license.\_
+The code base was previously licensed under the Terms described here.
+We are in the middle of relicensing to a new approach (described above).
+More than 99% of all contributions made to LLVM are covered by the Apache-2.0
+WITH LLVM-exception license. A small portion of LLVM code remains exclusively
+covered by the legacy license. Contributions after 2024-06-01 are covered
+exclusively by the new license.
 ```
 
 We intend to keep LLVM perpetually open source and to use a permissive open
-source license. The code in LLVM is available under the [University of
-Illinois/NCSA Open Source
+source license.  The code in
+LLVM is available under the [University of Illinois/NCSA Open Source
 License](http://www.opensource.org/licenses/UoI-NCSA.php), which boils down to
 this:
 
@@ -1354,11 +1354,11 @@ clarification is needed.
 
 In addition to the UIUC license, the runtime library components of LLVM
 (**compiler_rt, libc++, and libclc**) are also licensed under the [MIT
-License](http://www.opensource.org/licenses/mit-license.php), which does not
-contain the binary redistribution clause. As a user of these runtime libraries,
-it means that you can choose to use the code under either license (and thus
-don't need the binary redistribution clause), and as a contributor to the code
-that you agree that any contributions to these libraries be licensed under both
+License](http://www.opensource.org/licenses/mit-license.php), which does not contain
+the binary redistribution clause. As a user of these runtime libraries, it
+means that you can choose to use the code under either license (and thus don't
+need the binary redistribution clause), and as a contributor to the code that
+you agree that any contributions to these libraries be licensed under both
 licenses. We feel that this is important for runtime libraries, because they
 are implicitly linked into applications and therefore should not subject those
 applications to the binary redistribution clause. This also means that it is ok
