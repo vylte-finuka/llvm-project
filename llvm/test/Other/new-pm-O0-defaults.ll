@@ -42,6 +42,7 @@
 ; CHECK-MATRIX-NEXT: Running analysis: TargetIRAnalysis
 ; CHECK-CORO-NEXT: Running pass: CoroConditionalWrapper
 ; CHECK-ALLOCTOKEN-NEXT: Running pass: AllocTokenPass
+; CHECK-CORO-NEXT: Running pass: LowerCommentStringPass
 ; CHECK-PRE-LINK: Running pass: CanonicalizeAliasesPass
 ; CHECK-PRE-LINK-NEXT: Running pass: NameAnonGlobalPass
 ; CHECK-PRE-LINK-NEXT: Running pass: AssignGUIDPass
@@ -62,7 +63,6 @@
 ; CHECK-CORO-NEXT: Running analysis: TargetLibraryAnalysis
 ; CHECK-LTO-NEXT: Running pass: AnnotationRemarksPass
 ; CHECK-LTO-NEXT: Running analysis: TargetLibraryAnalysis
-; CHECK-CORO-NEXT: Running pass: LowerCommentStringPass
 ; CHECK-NEXT: Running pass: PrintModulePass
 
 ; Make sure we get the IR back out without changes when we print the module.

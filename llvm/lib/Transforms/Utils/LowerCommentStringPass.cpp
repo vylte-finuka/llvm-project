@@ -118,11 +118,6 @@ PreservedAnalyses LowerCommentStringPass::run(Module &M,
   // Place in the "__loadtime_comment" section.
   // The GV is constant, so we expect a read-only section.
   StrGV->setSection("__loadtime_comment");
-  // Assign a stable GUID to the global string created.
-  uint64_t GUID = llvm::MD5Hash("__loadtime_comment_str");
-  StrGV->setMetadata("guid",
-                     MDNode::get(Ctx, {ConstantAsMetadata::get(ConstantInt::get(
-                                          Type::getInt64Ty(Ctx), GUID))}));
 
   // 2. Add the string to llvm.compiler.used to prevent LLVM optimization/LTO
   // passes from removing it.

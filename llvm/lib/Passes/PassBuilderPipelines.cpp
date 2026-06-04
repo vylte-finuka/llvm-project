@@ -1905,13 +1905,13 @@ PassBuilder::buildThinLTOPreLinkDefaultPipeline(OptimizationLevel Level) {
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
 
-  addRequiredLTOPreLinkPasses(MPM);
-
   // Lower !comment_string.loadtime metadata. Must run at the end of prelink
   // so all compiler-generated functions are present before !implicit.ref
   // is attached. !implicit.ref metadata will travel with any function
   // imported by ThinLTO postlink.
   MPM.addPass(LowerCommentStringPass());
+
+  addRequiredLTOPreLinkPasses(MPM);
 
   instructionCountersPass(MPM, /* IsPreOptimization */ false);
 
@@ -2491,16 +2491,16 @@ PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
   if (EnableInstrumentor)
     MPM.addPass(InstrumentorPass(FS));
 
+  // Lower !comment_string.loadtime metadata to a concrete TU-local string
+  // global. Running at the end of the O0 pipeline ensures all functions
+  // including AlwaysInliner-generated ones are captured.
+  MPM.addPass(LowerCommentStringPass());
+
   if (isLTOPreLink(Phase))
     addRequiredLTOPreLinkPasses(MPM);
 
   // Emit annotation remarks.
   addAnnotationRemarksPass(MPM);
-
-  // Lower !comment_string.loadtime metadata to a concrete TU-local string
-  // global. Running at the end of the O0 pipeline ensures all functions
-  // including AlwaysInliner-generated ones are captured.
-  MPM.addPass(LowerCommentStringPass());
 
   instructionCountersPass(MPM, /* IsPreOptimization */ false);
 
