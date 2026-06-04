@@ -99,6 +99,7 @@
 #include "llvm/Support/IOSandbox.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MD5.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
@@ -106,6 +107,7 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/StringSaver.h"
+#include "llvm/Support/TarWriter.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
@@ -177,13 +179,13 @@ std::string CUIDOptions::getCUID(StringRef InputFile,
   }
   return CUID;
 }
-Driver::Driver(StringRef ClangExecutable, StringRef TargetTriple,
+Driver::Driver(StringRef DriverExecutable, StringRef TargetTriple,
                DiagnosticsEngine &Diags, std::string Title,
                IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS)
     : Diags(Diags), VFS(std::move(VFS)), Mode(GCCMode),
       SaveTemps(SaveTempsNone), BitcodeEmbed(EmbedNone),
       Offload(OffloadHostDevice), CXX20HeaderType(HeaderMode_None),
-      ModulesModeCXX20(false), ClangExecutable(ClangExecutable),
+      ModulesModeCXX20(false), DriverExecutable(DriverExecutable),
       SysRoot(DEFAULT_SYSROOT), DriverTitle(Title), CCCPrintBindings(false),
       CCPrintOptions(false), CCLogDiagnostics(false), CCGenDiagnostics(false),
       CCPrintProcessStats(false), CCPrintInternalStats(false),
@@ -194,8 +196,8 @@ Driver::Driver(StringRef ClangExecutable, StringRef TargetTriple,
   if (!this->VFS)
     this->VFS = llvm::vfs::getRealFileSystem();
 
-  Name = std::string(llvm::sys::path::filename(ClangExecutable));
-  Dir = std::string(llvm::sys::path::parent_path(ClangExecutable));
+  Name = std::string(llvm::sys::path::filename(DriverExecutable));
+  Dir = std::string(llvm::sys::path::parent_path(DriverExecutable));
 
   if ((!SysRoot.empty()) && llvm::sys::path::is_relative(SysRoot)) {
     // Prepend InstalledDir if SysRoot is relative
@@ -223,7 +225,7 @@ Driver::Driver(StringRef ClangExecutable, StringRef TargetTriple,
 #endif
 
   // Compute the path to the resource directory.
-  ResourceDir = GetResourcesPath(ClangExecutable);
+  ResourceDir = GetResourcesPath(DriverExecutable);
 }
 
 void Driver::setDriverMode(StringRef Value) {
@@ -1446,7 +1448,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   // We look for the driver mode option early, because the mode can affect
   // how other options are parsed.
 
-  auto DriverMode = getDriverMode(ClangExecutable, ArgList.slice(1));
+  auto DriverMode = getDriverMode(DriverExecutable, ArgList.slice(1));
   if (!DriverMode.empty())
     setDriverMode(DriverMode);
 
@@ -1965,10 +1967,9 @@ bool Driver::getCrashDiagnosticFile(StringRef ReproCrashFilename,
   return false;
 }
 
-static const char BugReporMsg[] =
+static const char BugReportMsg[] =
     "\n********************\n\n"
-    "PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:\n"
-    "Preprocessed source(s) and associated run script(s) are located at:";
+    "PLEASE ATTACH THE FOLLOWING CRASH REPRODUCER FILES TO THE BUG REPORT:";
 
 // When clang crashes, produce diagnostic information including the fully
 // preprocessed source file(s).  Request that the developer attach the
@@ -1978,6 +1979,8 @@ void Driver::generateCompilationDiagnostics(
     StringRef AdditionalInformation, CompilationDiagnosticReport *Report) {
   if (C.getArgs().hasArg(options::OPT_fno_crash_diagnostics))
     return;
+
+  bool HasCrashTar = C.getArgs().hasArg(options::OPT_fcrash_diagnostics_tar);
 
   unsigned Level = 1;
   if (Arg *A = C.getArgs().getLastArg(options::OPT_fcrash_diagnostics_EQ)) {
@@ -2039,7 +2042,7 @@ void Driver::generateCompilationDiagnostics(
 
     // Redirect stdout/stderr to /dev/null.
     NewLLDInvocation.Execute({std::nullopt, {""}, {""}}, nullptr, nullptr);
-    Diag(clang::diag::note_drv_command_failed_diag_msg) << BugReporMsg;
+    Diag(clang::diag::note_drv_command_failed_diag_msg) << BugReportMsg;
     Diag(clang::diag::note_drv_command_failed_diag_msg) << TmpName;
     Diag(clang::diag::note_drv_command_failed_diag_msg)
         << "\n\n********************";
@@ -2180,12 +2183,13 @@ void Driver::generateCompilationDiagnostics(
     TempFiles.push_back(std::string(Path.begin(), Path.end()));
   }
 
-  Diag(clang::diag::note_drv_command_failed_diag_msg) << BugReporMsg;
+  Diag(clang::diag::note_drv_command_failed_diag_msg) << BugReportMsg;
 
   SmallString<128> VFS;
   SmallString<128> ReproCrashFilename;
   for (std::string &TempFile : TempFiles) {
-    Diag(clang::diag::note_drv_command_failed_diag_msg) << TempFile;
+    if (!HasCrashTar)
+      Diag(clang::diag::note_drv_command_failed_diag_msg) << TempFile;
     if (Report)
       Report->TemporaryFiles.push_back(TempFile);
     if (ReproCrashFilename.empty()) {
@@ -2227,7 +2231,69 @@ void Driver::generateCompilationDiagnostics(
                << "\n";
     if (Report)
       Report->TemporaryFiles.push_back(std::string(Script));
-    Diag(clang::diag::note_drv_command_failed_diag_msg) << Script;
+    TempFiles.push_back(std::string(Script));
+    ScriptOS.close();
+    if (!HasCrashTar)
+      Diag(clang::diag::note_drv_command_failed_diag_msg) << Script;
+  }
+
+  if (Arg *A = C.getArgs().getLastArg(options::OPT_fcrash_diagnostics_tar)) {
+    StringRef CrashDiagnosticsTar = A->getValue();
+    Expected<std::unique_ptr<llvm::TarWriter>> TarOrErr =
+        llvm::TarWriter::create(CrashDiagnosticsTar,
+                                llvm::sys::path::stem(CrashDiagnosticsTar));
+    if (!TarOrErr) {
+      Diag(clang::diag::note_drv_command_failed_diag_msg)
+          << (std::string("Error creating reproducer tarball: ") +
+              llvm::toString(TarOrErr.takeError()));
+    } else {
+      std::unique_ptr<llvm::TarWriter> &Tar = *TarOrErr;
+      for (const std::string &TempFile : TempFiles) {
+        if (llvm::sys::fs::is_directory(TempFile)) {
+          std::error_code EC;
+          for (llvm::sys::fs::recursive_directory_iterator I(TempFile, EC), E;
+               I != E && !EC; I.increment(EC)) {
+            if (llvm::sys::fs::is_regular_file(I->path())) {
+              auto BufferOrErr = llvm::MemoryBuffer::getFile(I->path());
+              if (BufferOrErr) {
+                // Construct path of file relative to TempFile.
+                llvm::SmallString<128> PathInTar =
+                    llvm::sys::path::filename(TempFile);
+                StringRef SubPath = I->path();
+                if (SubPath.consume_front(TempFile)) {
+                  if (!SubPath.empty() &&
+                      llvm::sys::path::is_separator(SubPath.front())) {
+                    SubPath = SubPath.drop_front();
+                  }
+                  llvm::sys::path::append(PathInTar, SubPath);
+                  Tar->append(PathInTar, (*BufferOrErr)->getBuffer());
+                }
+              } else {
+                Diag(clang::diag::note_drv_command_failed_diag_msg)
+                    << (std::string("Error reading file for tarball: ") +
+                        I->path());
+              }
+            }
+          }
+          if (EC) {
+            Diag(clang::diag::note_drv_command_failed_diag_msg)
+                << (std::string("Error iterating directory for tarball: ") +
+                    TempFile + " " + EC.message());
+          }
+        } else {
+          auto BufferOrErr = llvm::MemoryBuffer::getFile(TempFile);
+          if (BufferOrErr) {
+            Tar->append(llvm::sys::path::filename(TempFile),
+                        (*BufferOrErr)->getBuffer());
+          } else {
+            Diag(clang::diag::note_drv_command_failed_diag_msg)
+                << (std::string("Error reading file for tarball: ") + TempFile);
+          }
+        }
+      }
+      Diag(clang::diag::note_drv_command_failed_diag_msg)
+          << CrashDiagnosticsTar;
+    }
   }
 
   // On darwin, provide information about the .crash diagnostic report.
@@ -2395,12 +2461,12 @@ static void PrintLocalVersionInfo(StringRef ExecutablePath, raw_ostream &OS) {
 
 void Driver::PrintVersion(const Compilation &C, raw_ostream &OS) const {
   if (IsFlangMode()) {
-    PrintLocalVersionInfo(ClangExecutable, OS);
+    PrintLocalVersionInfo(DriverExecutable, OS);
     OS << getClangToolFullVersion("flang") << '\n';
   } else {
     // FIXME: The following handlers should use a callback mechanism, we don't
     // know what the client would like to do.
-    PrintLocalVersionInfo(ClangExecutable, OS);
+    PrintLocalVersionInfo(DriverExecutable, OS);
     OS << getClangFullVersion() << '\n';
   }
   const ToolChain &TC = C.getDefaultToolChain();
