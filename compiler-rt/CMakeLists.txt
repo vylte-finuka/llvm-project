@@ -329,6 +329,13 @@ endif()
 option(COMPILER_RT_BUILD_PROFILE_ROCM
   "Build the host-side ROCm/HIP device profile collection runtime"
   ${DEFAULT_COMPILER_RT_BUILD_PROFILE_ROCM})
+
+# Opt-in clang_rt.profile_rocm (built /MD on Windows, depends on the sanitizer
+# interception library). Off by default on all platforms so default builds are
+# unaffected.
+option(COMPILER_RT_BUILD_PROFILE_ROCM
+  "Build the host-side ROCm/HIP device profile collection runtime (clang_rt.profile_rocm)"
+  OFF)
 mark_as_advanced(COMPILER_RT_BUILD_PROFILE_ROCM)
 
 include(config-ix)

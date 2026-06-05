@@ -1649,6 +1649,7 @@ void OmpStructureChecker::Leave(const parser::OmpThreadprivateDirective &x) {
   for (const parser::OmpArgument &arg : x.v.Arguments().v) {
     if (auto *object{GetArgumentObject(arg)}) {
       CheckSymbolName(dirSpec.source, *object);
+      CheckTypeParamInquiry(dirSpec.source, *object);
       CheckVarIsNotPartOfAnotherVar(dirSpec.source, *object);
       CheckThreadprivateOrDeclareTargetVar(*object);
     }
@@ -2026,6 +2027,7 @@ void OmpStructureChecker::CheckIndividualAllocateDirective(
       if (!IsTypeParamInquiry(*symbol)) {
         checkSymbol(*symbol, arg.source);
       }
+      CheckTypeParamInquiry(dirName.source, *object);
       CheckVarIsNotPartOfAnotherVar(dirName.source, *object);
     }
   }
@@ -2356,6 +2358,7 @@ void OmpStructureChecker::Leave(const parser::OmpDeclareTargetDirective &x) {
     if (auto *object{GetArgumentObject(arg)}) {
       deviceConstructFound_ = true;
       CheckSymbolName(dirName.source, *object);
+      CheckTypeParamInquiry(dirName.source, *object);
       CheckVarIsNotPartOfAnotherVar(dirName.source, *object);
       CheckThreadprivateOrDeclareTargetVar(*object);
     }
@@ -2401,6 +2404,7 @@ void OmpStructureChecker::Leave(const parser::OmpDeclareTargetDirective &x) {
                   std::is_same_v<TypeC, parser::OmpClause::To>) {
                 auto &objList{*GetOmpObjectList(c)};
                 CheckSymbolNames(dirName.source, objList);
+                CheckTypeParamInquiry(dirName.source, objList);
                 CheckVarIsNotPartOfAnotherVar(dirName.source, objList);
                 CheckThreadprivateOrDeclareTargetVar(objList);
               }
@@ -2549,6 +2553,7 @@ void OmpStructureChecker::Enter(const parser::OpenMPAllocatorsConstruct &x) {
       continue;
     }
     for (auto &object : DEREF(GetOmpObjectList(clause)).v) {
+      CheckTypeParamInquiry(dirName.source, object);
       CheckVarIsNotPartOfAnotherVar(dirName.source, object);
       if (auto *symbol{GetObjectSymbol(object, /*ultimate=*/true)}) {
         if (IsStructureComponent(*symbol)) {
@@ -4190,6 +4195,7 @@ void OmpStructureChecker::CheckSharedBindingInOuterContext(
 
 void OmpStructureChecker::Enter(const parser::OmpClause::Shared &x) {
   CheckAllowedClause(llvm::omp::Clause::OMPC_shared);
+  CheckTypeParamInquiry(GetContext().clauseSource, x.v);
   CheckVarIsNotPartOfAnotherVar(GetContext().clauseSource, x.v, "SHARED");
   CheckCrayPointee(x.v, "SHARED");
 }
@@ -4197,6 +4203,7 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Private &x) {
   SymbolSourceMap symbols;
   GetSymbolsInObjectList(x.v, symbols);
   CheckAllowedClause(llvm::omp::Clause::OMPC_private);
+  CheckTypeParamInquiry(GetContext().clauseSource, x.v);
   CheckVarIsNotPartOfAnotherVar(GetContext().clauseSource, x.v, "PRIVATE");
   CheckIntentInPointer(symbols, llvm::omp::Clause::OMPC_private);
   CheckCrayPointee(x.v, "PRIVATE");
@@ -4205,6 +4212,24 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Private &x) {
 
 void OmpStructureChecker::Enter(const parser::OmpClause::Nowait &x) {
   CheckAllowedClause(llvm::omp::Clause::OMPC_nowait);
+}
+
+void OmpStructureChecker::CheckTypeParamInquiry(
+    const parser::CharBlock &source, const parser::OmpObject &object) {
+  if (const Symbol *symbol{GetObjectSymbol(object)}) {
+    if (IsTypeParamInquiry(*symbol)) {
+      context_.Say(source,
+          "A type parameter inquiry cannot appear on the %s directive"_err_en_US,
+          ContextDirectiveAsFortran());
+    }
+  }
+}
+
+void OmpStructureChecker::CheckTypeParamInquiry(
+    const parser::CharBlock &source, const parser::OmpObjectList &objects) {
+  for (const parser::OmpObject &object : objects.v) {
+    CheckTypeParamInquiry(source, object);
+  }
 }
 
 void OmpStructureChecker::CheckVarIsNotPartOfAnotherVar(
@@ -4216,40 +4241,33 @@ void OmpStructureChecker::CheckVarIsNotPartOfAnotherVar(
 }
 
 void OmpStructureChecker::CheckVarIsNotPartOfAnotherVar(
-    const parser::CharBlock &source, const parser::OmpObject &ompObject,
+    const parser::CharBlock &source, const parser::OmpObject &object,
     llvm::StringRef clause) {
-  common::visit(
-      common::visitors{
-          [&](const parser::Designator &designator) {
-            if (auto *symbol{GetLastName(designator).symbol};
-                symbol && IsTypeParamInquiry(*symbol)) {
-              context_.Say(source,
-                  "A type parameter inquiry cannot appear on the %s directive"_err_en_US,
-                  ContextDirectiveAsFortran());
-            } else if (std::holds_alternative<parser::DataRef>(designator.u)) {
-              if (parser::Unwrap<parser::StructureComponent>(ompObject) ||
-                  parser::Unwrap<parser::ArrayElement>(ompObject)) {
-                if (llvm::omp::nonPartialVarSet.test(GetContext().directive)) {
-                  context_.Say(source,
-                      "A variable that is part of another variable (as an array or structure element) cannot appear on the %s directive"_err_en_US,
-                      ContextDirectiveAsFortran());
-                } else {
-                  context_.Say(source,
-                      "A variable that is part of another variable (as an array or structure element) cannot appear in a %s clause"_err_en_US,
-                      clause.data());
-                }
-              }
-            }
-          },
-          [&](const parser::Name &name) {},
-          [&](const parser::OmpObject::Invalid &invalid) {},
-      },
-      ompObject.u);
+  bool report{false};
+  if (auto *symbol{GetObjectSymbol(object)}) {
+    if (IsTypeParamInquiry(*symbol)) {
+      return;
+    }
+    report = IsStructureComponent(*symbol);
+  }
+
+  if (report || parser::Unwrap<parser::ArrayElement>(object)) {
+    if (llvm::omp::nonPartialVarSet.test(GetContext().directive)) {
+      context_.Say(source,
+          "A variable that is part of another variable (as an array or structure element) cannot appear on the %s directive"_err_en_US,
+          ContextDirectiveAsFortran());
+    } else {
+      context_.Say(source,
+          "A variable that is part of another variable (as an array or structure element) cannot appear in a %s clause"_err_en_US,
+          clause.str());
+    }
+  }
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause::Firstprivate &x) {
   CheckAllowedClause(llvm::omp::Clause::OMPC_firstprivate);
 
+  CheckTypeParamInquiry(GetContext().clauseSource, x.v);
   CheckVarIsNotPartOfAnotherVar(GetContext().clauseSource, x.v, "FIRSTPRIVATE");
   CheckCrayPointee(x.v, "FIRSTPRIVATE");
 
@@ -4453,6 +4471,8 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Detach &x) {
     // OpenMP 5.0: 2.10.1 Task construct restrictions
     CheckAllowedClause(llvm::omp::Clause::OMPC_detach);
   }
+
+  CheckTypeParamInquiry(GetContext().clauseSource, x.v.v);
   // OpenMP 5.2: 12.5.2 Detach clause restrictions
   if (version >= 52) {
     CheckVarIsNotPartOfAnotherVar(GetContext().clauseSource, x.v.v, "DETACH");
@@ -4918,6 +4938,7 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Lastprivate &x) {
   CheckAllowedClause(llvm::omp::Clause::OMPC_lastprivate);
 
   const auto &objectList{*GetOmpObjectList(x)};
+  CheckTypeParamInquiry(GetContext().clauseSource, objectList);
   CheckVarIsNotPartOfAnotherVar(
       GetContext().clauseSource, objectList, "LASTPRIVATE");
   CheckCrayPointee(objectList, "LASTPRIVATE");
