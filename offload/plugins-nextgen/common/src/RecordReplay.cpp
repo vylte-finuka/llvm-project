@@ -318,17 +318,21 @@ Error NativeRecordReplayTy::recordSnapshot(StringRef Filename) {
   uint64_t RecordSize = CurrentSize;
   AllocationLock.unlock();
 
-  ErrorOr<std::unique_ptr<WritableMemoryBuffer>> DeviceMemoryMB =
-      WritableMemoryBuffer::getNewUninitMemBuffer(RecordSize);
-  if (!DeviceMemoryMB)
-    return Plugin::error(ErrorCode::OUT_OF_RESOURCES,
-                         "creating MemoryBuffer for device memory");
+  StringRef DeviceMemory;
+  if (RecordSize) {
+    ErrorOr<std::unique_ptr<WritableMemoryBuffer>> DeviceMemoryMB =
+        WritableMemoryBuffer::getNewUninitMemBuffer(RecordSize);
+    if (!DeviceMemoryMB)
+      return Plugin::error(ErrorCode::OUT_OF_RESOURCES,
+                           "creating MemoryBuffer for device memory");
 
-  if (auto Err = Device.dataRetrieve(DeviceMemoryMB.get()->getBufferStart(),
-                                     StartAddr, RecordSize, nullptr))
-    return Err;
+    if (auto Err = Device.dataRetrieve(DeviceMemoryMB.get()->getBufferStart(),
+                                       StartAddr, RecordSize, nullptr))
+      return Err;
 
-  StringRef DeviceMemory(DeviceMemoryMB.get()->getBufferStart(), RecordSize);
+    DeviceMemory =
+        StringRef(DeviceMemoryMB.get()->getBufferStart(), RecordSize);
+  }
 
   std::error_code EC;
   raw_fd_ostream OS(Filename, EC);
