@@ -2363,7 +2363,7 @@ void Clang::DumpCompilationDatabase(Compilation &C, StringRef Filename,
   CDB << ", \"file\": \"" << escape(Input.getFilename()) << "\"";
   if (Output.isFilename())
     CDB << ", \"output\": \"" << escape(Output.getFilename()) << "\"";
-  CDB << ", \"arguments\": [\"" << escape(D.ClangExecutable) << "\"";
+  CDB << ", \"arguments\": [\"" << escape(D.DriverExecutable) << "\"";
   SmallString<128> Buf;
   Buf = "-x";
   Buf += types::getTypeName(Input.getType());
@@ -5635,7 +5635,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     }
 
     C.addCommand(std::make_unique<Command>(
-        JA, *this, ResponseFileSupport::AtFileUTF8(), D.getClangProgramPath(),
+        JA, *this, ResponseFileSupport::AtFileUTF8(), D.getDriverProgramPath(),
         CmdArgs, Inputs, Output, D.getPrependArg()));
     return;
   }
@@ -7065,6 +7065,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       else
         CmdArgs.push_back("-fno-openmp-target-multi-device");
 
+      for (Arg *A : Args.filtered(options::OPT_fopenmp_target_xteam_scan,
+                                  options::OPT_fno_openmp_target_xteam_scan,
+                                  options::OPT_fopenmp_target_xteam_no_loop_scan,
+                                  options::OPT_fno_openmp_target_xteam_no_loop_scan))
+        D.Diag(diag::warn_drv_deprecated_custom)
+            << A->getAsString(Args)
+            << "will be removed in a future revision of the OpenMP implementation.";
+
       if (Args.hasFlag(options::OPT_fopenmp_target_xteam_scan,
                        options::OPT_fno_openmp_target_xteam_scan, false))
         CmdArgs.push_back("-fopenmp-target-xteam-scan");
@@ -8221,7 +8229,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   std::string AltPath = D.getInstalledDir();
   AltPath += "/../alt/bin/clang-" + std::to_string(LLVM_VERSION_MAJOR);
 
-  const char *Exec = D.getClangProgramPath();
+  const char *Exec = D.getDriverProgramPath();
+
   // Optionally embed the -cc1 level arguments into the debug info or a
   // section, for build analysis.
   // Also record command line arguments into the debug info if
@@ -9276,7 +9285,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
       Arg->render(Args, OriginalArgs);
 
     SmallString<256> Flags;
-    const char *Exec = getToolChain().getDriver().getClangProgramPath();
+    const char *Exec = getToolChain().getDriver().getDriverProgramPath();
     escapeSpacesAndBackslashes(Exec, Flags);
     for (const char *OriginalArg : OriginalArgs) {
       SmallString<128> EscapedArg;
@@ -9413,6 +9422,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   // TODO This is a workaround to enable using -save-temps with flang
   // const char *Exec = getToolChain().getDriver().getClangProgramPath();
   const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("clang"));
+//const char *Exec = getToolChain().getDriver().getDriverProgramPath();
   if (D.CC1Main && !D.CCGenDiagnostics) {
     // Invoke cc1as directly in this process.
     C.addCommand(std::make_unique<CC1Command>(
@@ -9475,14 +9485,10 @@ void OffloadBundler::ConstructJob(Compilation &C, const JobAction &JA,
     Triples += '-';
     Triples +=
         CurTC->getTriple().normalize(llvm::Triple::CanonicalForm::FOUR_IDENT);
-    if ((CurKind == Action::OFK_HIP || CurKind == Action::OFK_Cuda) &&
+    if (CurKind != Action::OFK_Host &&
         !StringRef(CurDep->getOffloadingArch()).empty()) {
       Triples += '-';
       Triples += CurDep->getOffloadingArch();
-    }
-    if (CurKind == Action::OFK_OpenMP && !CurTC->getTargetID().empty()) {
-      Triples += '-';
-      Triples += CurTC->getTargetID();
     }
   }
   CmdArgs.push_back(TCArgs.MakeArgString(Triples));
@@ -9579,16 +9585,10 @@ void OffloadBundler::ConstructJobMultipleOutputs(
     Triples += '-';
     Triples += Dep.DependentToolChain->getTriple().normalize(
         llvm::Triple::CanonicalForm::FOUR_IDENT);
-    if ((Dep.DependentOffloadKind == Action::OFK_HIP ||
-         Dep.DependentOffloadKind == Action::OFK_Cuda) &&
+    if (Dep.DependentOffloadKind != Action::OFK_Host &&
         !Dep.DependentBoundArch.empty()) {
       Triples += '-';
       Triples += Dep.DependentBoundArch;
-    }
-    if (OffloadKind == Action::OFK_OpenMP &&
-        !Dep.DependentToolChain->getTargetID().empty()) {
-      Triples += '-';
-      Triples += Dep.DependentToolChain->getTargetID();
     }
   }
 

@@ -23,3 +23,6 @@ aa8e38f4f871 [OpenMP] FIx omp_lib.mod compilation for the GPU
 911eddeed7ba [Flang] Fix omp_lib.h location and search path
 bafde6fbb [Flang] Move builtin .mod generation into runtimes
 ---
+breaks nekbone
+[OpenMP] Use ext linkage for kernels handles and globals handles keep… (#200964)
+---
