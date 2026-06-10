@@ -138,36 +138,33 @@ Value createIgnoredValue(OpBuilder &builder, Location loc, Type ty) {
 ArrayAttr updateArgAttrs(MLIRContext *ctx, ArrayRef<Type> origArgTypes,
                          ArrayAttr existingArgAttrs,
                          const FunctionClassification &fc) {
+  mlir::Builder builder(ctx);
   SmallVector<Attribute> newArgAttrs;
   newArgAttrs.reserve(fc.argInfos.size());
   for (auto [oldIdx, ac] : llvm::enumerate(fc.argInfos)) {
     if (ac.kind == ArgKind::Ignore)
       continue;
-    DictionaryAttr existing = DictionaryAttr::get(ctx);
+    DictionaryAttr existing = builder.getDictionaryAttr({});
     if (existingArgAttrs && oldIdx < existingArgAttrs.size())
       existing = cast<DictionaryAttr>(existingArgAttrs[oldIdx]);
     if (ac.kind == ArgKind::Extend) {
       StringRef attrName = ac.signExtend ? "llvm.signext" : "llvm.zeroext";
-      NamedAttribute extAttr(StringAttr::get(ctx, attrName),
-                             UnitAttr::get(ctx));
-      if (existing.empty()) {
-        newArgAttrs.push_back(DictionaryAttr::get(ctx, {extAttr}));
-      } else {
-        SmallVector<NamedAttribute> attrs(existing.begin(), existing.end());
-        attrs.push_back(extAttr);
-        newArgAttrs.push_back(DictionaryAttr::get(ctx, attrs));
-      }
+      SmallVector<NamedAttribute> attrs(existing.begin(), existing.end());
+      attrs.push_back(builder.getNamedAttr(attrName, builder.getUnitAttr()));
+      newArgAttrs.push_back(builder.getDictionaryAttr(attrs));
     } else if (ac.kind == ArgKind::Indirect) {
       // byval: caller-allocated copy; callee receives pointer to copy.
       // byref: callee receives pointer to the caller's original storage.
       // Both use llvm.align(A).  The ownership flag differs: llvm.byval(T)
-      // vs llvm.byref(T).  The pointee type T is the pre-rewrite arg type.
+      // vs llvm.byref(T).  Both are typed attributes carrying the pointee
+      // type T (the pre-rewrite arg type); T is recorded explicitly because
+      // it cannot be recovered from the opaque LLVM pointer after lowering.
       //
       // For byval, two additional attributes match classic CodeGen:
-      //   llvm.noundef — the copy is always fully defined (the caller's
+      //   llvm.noundef -- the copy is always fully defined (the caller's
       //     original must be defined or UB has already occurred, and the
       //     copy inherits that property).
-      //   llvm.noalias — the copy is a fresh caller-allocated alloca that
+      //   llvm.noalias -- the copy is a fresh caller-allocated alloca that
       //     no other pointer in the function can alias.  Classic CodeGen
       //     emits this when -fpass-by-value-is-noalias is set; here we
       //     emit it unconditionally because our call-site rewrite always
@@ -175,24 +172,22 @@ ArrayAttr updateArgAttrs(MLIRContext *ctx, ArrayRef<Type> origArgTypes,
       Type pointeeTy = origArgTypes[oldIdx];
       StringRef ownershipAttr = ac.byVal ? "llvm.byval" : "llvm.byref";
       SmallVector<NamedAttribute> attrs(existing.begin(), existing.end());
+      attrs.push_back(builder.getNamedAttr(
+          "llvm.align", builder.getI64IntegerAttr(ac.indirectAlign.value())));
       attrs.push_back(
-          NamedAttribute(StringAttr::get(ctx, "llvm.align"),
-                         IntegerAttr::get(IntegerType::get(ctx, 64),
-                                          ac.indirectAlign.value())));
-      attrs.push_back(NamedAttribute(StringAttr::get(ctx, ownershipAttr),
-                                     TypeAttr::get(pointeeTy)));
+          builder.getNamedAttr(ownershipAttr, TypeAttr::get(pointeeTy)));
       if (ac.byVal) {
-        attrs.push_back(NamedAttribute(StringAttr::get(ctx, "llvm.noalias"),
-                                       UnitAttr::get(ctx)));
-        attrs.push_back(NamedAttribute(StringAttr::get(ctx, "llvm.noundef"),
-                                       UnitAttr::get(ctx)));
+        attrs.push_back(
+            builder.getNamedAttr("llvm.noalias", builder.getUnitAttr()));
+        attrs.push_back(
+            builder.getNamedAttr("llvm.noundef", builder.getUnitAttr()));
       }
-      newArgAttrs.push_back(DictionaryAttr::get(ctx, attrs));
+      newArgAttrs.push_back(builder.getDictionaryAttr(attrs));
     } else {
       newArgAttrs.push_back(existing);
     }
   }
-  return ArrayAttr::get(ctx, newArgAttrs);
+  return builder.getArrayAttr(newArgAttrs);
 }
 
 /// Build an updated res_attrs ArrayAttr (single entry, since CIR funcs have
@@ -329,13 +324,21 @@ void insertArgCoercion(FunctionOpInterface funcOp,
   Block &entry = body.front();
 
   for (auto [idx, ac] : llvm::enumerate(fc.argInfos)) {
+    // Only two classifications need an entry-block fixup: a Direct arg with a
+    // coerced wire type, and an Indirect (byval/byref) arg.  Extend, Ignore,
+    // and Direct-without-coercion keep the original block-argument type, so
+    // the body already sees the right value and there is nothing to do.
+    bool needsCoercion = ac.kind == ArgKind::Direct && ac.coercedType;
+    if (!needsCoercion && ac.kind != ArgKind::Indirect)
+      continue;
+
     unsigned blockIdx = idx + sretOffset;
     if (blockIdx >= entry.getNumArguments())
       continue;
 
     BlockArgument blockArg = entry.getArgument(blockIdx);
 
-    if (ac.kind == ArgKind::Direct && ac.coercedType) {
+    if (needsCoercion) {
       Type oldArgTy = blockArg.getType();
       Type newArgTy = ac.coercedType;
       if (oldArgTy == newArgTy)
@@ -353,12 +356,12 @@ void insertArgCoercion(FunctionOpInterface funcOp,
       // operand is blockArg, and if we naively replaceAllUses it gets swapped
       // to adapted (now of the original type != the alloca's pointee type).
       blockArg.replaceAllUsesExcept(adapted, coercionOps);
-    } else if (ac.kind == ArgKind::Indirect) {
-      // byval and byref: the wire type is !cir.ptr<T>.  Change the block arg
-      // to the pointer type and insert a load so the body sees the original T.
-      // The body transformation is the same for both; the distinction between
-      // byval (llvm.byval) and byref (llvm.byref) is in the arg attributes
-      // applied by updateArgAttrs.
+    } else {
+      // ArgKind::Indirect.  byval and byref: the wire type is !cir.ptr<T>.
+      // Change the block arg to the pointer type and insert a load so the
+      // body sees the original T.  The body transformation is the same for
+      // both; the distinction between byval (llvm.byval) and byref
+      // (llvm.byref) is in the arg attributes applied by updateArgAttrs.
       Type origTy = blockArg.getType();
       auto ptrTy = cir::PointerType::get(origTy);
       blockArg.setType(ptrTy);
@@ -684,9 +687,7 @@ LogicalResult CIRABIRewriteContext::rewriteCallSite(
   // the wire argument from T to !cir.ptr<T>, so we save the pre-rewrite
   // types here for use in updateArgAttrs).
   SmallVector<Type> origCallArgTypes;
-  origCallArgTypes.reserve(argOperands.size());
-  for (Value v : argOperands)
-    origCallArgTypes.push_back(v.getType());
+  llvm::append_range(origCallArgTypes, argOperands.getTypes());
   if (argOperands.size() > fc.argInfos.size())
     return call.emitOpError()
            << "variadic arguments not yet implemented in CallConvLowering";
@@ -697,10 +698,10 @@ LogicalResult CIRABIRewriteContext::rewriteCallSite(
       continue;
     Value arg = argOperands[idx];
     if (ac.kind == ArgKind::Direct && ac.coercedType &&
-        arg.getType() != ac.coercedType)
+        arg.getType() != ac.coercedType) {
       arg = emitCoercion(builder, call.getLoc(), ac.coercedType, arg,
                          enclosingFunc, dl);
-    else if (ac.kind == ArgKind::Indirect) {
+    } else if (ac.kind == ArgKind::Indirect) {
       // byval and byref: allocate a stack slot, copy the value in, and pass
       // the pointer.  The alloca+store pattern is identical for both; the
       // attribute distinction (llvm.byval vs llvm.byref) is applied by
