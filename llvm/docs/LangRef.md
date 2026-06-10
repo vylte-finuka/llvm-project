@@ -1461,7 +1461,7 @@ Currently, only the following parameter attributes are defined:
 
 `elementtype(<ty>)`
 :   The `elementtype` argument attribute can be used to specify a pointer
-    element type in a way that is compatible with [opaque pointers](OpaquePointers.rst).
+    element type in a way that is compatible with {doc}`opaque pointers <OpaquePointers>`.
 
     The `elementtype` attribute by itself does not carry any specific
     semantics. However, certain intrinsics may require this attribute to be
@@ -1613,9 +1613,7 @@ Currently, only the following parameter attributes are defined:
     `null_pointer_is_valid` function attribute is present.
     `n` should be a positive number. The pointer should be well defined,
     otherwise it is undefined behavior. This means `dereferenceable(<n>)`
-    implies `noundef`. When used in an assume operand bundle, more restricted
-    semantics apply. See {ref}`assume operand bundles <assume_opbundles>` for
-    more details.
+    implies `noundef`.
 
 (attr_dereferenceable_or_null)=
 
@@ -2960,7 +2958,7 @@ attributes are supported:
     not imply preference (it is logically a set). The compiler is free
     to pick any listed vector function of its choosing.
 
-    The syntax for the mangled names is as follows::
+    The syntax for the mangled names is as follows:
     ```
     _ZGV<isa><mask><vlen><parameters>_<scalar_name>[(<vector_redirection>)]
     ```
@@ -2988,7 +2986,7 @@ attributes are supported:
     `<isa>` token that can be used to create scalar-to-vector
     mappings for functions that are not directly associated to any of
     the target ISAs (for example, some of the mappings stored in the
-    TargetLibraryInfo). Valid values for the `<isa>` token are::
+    TargetLibraryInfo). Valid values for the `<isa>` token are:
     ```
     <isa>:= b | c | d | e  -> X86 SSE, AVX, AVX2, AVX512
           | n | s          -> Armv8 Advanced SIMD, SVE
@@ -2996,7 +2994,7 @@ attributes are supported:
     ```
 
     For all targets currently supported (x86, Arm and Internal LLVM),
-    the remaining tokens can have the following values::
+    the remaining tokens can have the following values:
     ```
     <mask>:= M | N         -> mask | no mask
 
@@ -3216,36 +3214,14 @@ necessarily during) the execution of the callee.
 #### Assume Operand Bundles
 
 Operand bundles on an {ref}`llvm.assume <int_assume>` allow representing
-assumptions, such as that a {ref}`parameter attribute <paramattrs>` or a
-{ref}`function attribute <fnattrs>` holds for a certain value at a certain
-location. Operand bundles enable assumptions that are either hard or impossible
-to represent as a boolean argument of an {ref}`llvm.assume <int_assume>`.
+assumptions that hold at the location of the assume. Operand bundles enable
+assumptions that are either hard or impossible to represent as a boolean
+argument of an {ref}`llvm.assume <int_assume>`.
 
 Assumes with operand bundles must have `i1 true` as the condition operand.
 
 Just like for the argument of {ref}`llvm.assume <int_assume>`, if any of the
 provided guarantees are violated at runtime the behavior is undefined.
-
-An assume operand bundle has the form:
-
-```
-"<tag>"([ <arguments>] ])
-```
-
-In the case of function or parameter attributes, the operand bundle has the
-restricted form:
-
-```
-"<tag>"([ <holds for value> [, <attribute argument>] ])
-```
-
-* The tag of the operand bundle is usually the name of the attribute that can be
-  assumed to hold. It can also be `ignore`; this tag doesn't contain any
-  information and should be ignored.
-* The first argument, if present, is the value for which the attribute holds.
-* The second argument, if present, is an argument of the attribute.
-
-If there are no arguments the attribute is a property of the call location.
 
 While attributes expect constant arguments, assume operand bundles may be
 provided a dynamic value, for example:
@@ -3254,7 +3230,7 @@ provided a dynamic value, for example:
 call void @llvm.assume(i1 true) ["align"(ptr %val, i32 %align)]
 ```
 
-The following operand bundles are currently accepted:
+The following attributes are currently accepted:
 
 `"align"(ptr %p, i64 %align)`, `"align"(ptr %p, i64 %align, i64 %offset)`
 :   Equivalent to {ref}`align(%align) <attr_align>` on `%p`, or
@@ -3268,10 +3244,8 @@ The following operand bundles are currently accepted:
 
 `"dereferenceable"(ptr %p, i64 %size)`
 :   Equivalent to {ref}`dereferenceable(%size) <attr_dereferenceable>` on
-    `%p` at the point of the assumption, except that `%size` may also be zero,
-    in which case the bundle doesn't imply `nonnull`. The pointer may not be
-    dereferenceable at later points, e.g., because it could have been freed.
-    Only `%size > 0` implies that the pointer is dereferenceable.
+    `%p`, except that `%size` may also be zero, in which case the bundle
+    doesn't imply `nonnull`.
 
 `"dereferenceable_or_null"(ptr %p, i64 %size)`
 :   Equivalent to {ref}`dereferenceable_or_null(%size)
@@ -4166,19 +4140,19 @@ For a simpler introduction to the ordering constraints, see the
 
 If an atomic operation is marked `syncscope("singlethread")`, it only
 *synchronizes with* other operations running in the same thread (for
-example, in signal handlers) and it is related in the seq\_cst order and
+example, in signal handlers) and it is related in the `seq_cst` order and
 the monotonic modification order with other operations in the same
 thread.
 
 If an atomic operation is marked `syncscope("<target-scope>")`, where
 `<target-scope>` is a target-specific synchronization scope, then it
 is target-dependent if it *synchronizes with* other operations and
-if it is related with other operations in the seq\_cst order and the
+if it is related with other operations in the `seq_cst` order and the
 monotonic modification order.
 
 Otherwise, an atomic operation that is not marked
 `syncscope("singlethread")` or `syncscope("<target-scope>")`
-*synchronizes with* and is related in the seq\_cst order and the
+*synchronizes with* and is related in the `seq_cst` order and the
 monotonic modification order with other operations that are not marked
 `syncscope("singlethread")` or `syncscope("<target-scope>")`.
 
@@ -4743,7 +4717,7 @@ address space. Exceptions apply if the operation is `volatile`.
 Prior to LLVM 15, pointer types also specified a pointee type, such as
 `i8*`, `[4 x i32]*` or `i32 (i32*)*`. In LLVM 15, such "typed
 pointers" are still supported under non-default options. See the
-[opaque pointers document](OpaquePointers.rst) for more information.
+{doc}`opaque pointers document <OpaquePointers>` for more information.
 
 (t_target_type)=
 
@@ -5555,7 +5529,7 @@ need to refer to the actual function body.
 
 A '`ptrauth`' constant represents a pointer with a cryptographic
 authentication signature embedded into some bits, as described in the
-[Pointer Authentication](PointerAuth.md) document.
+{doc}`Pointer Authentication <PointerAuth>` document.
 
 A '`ptrauth`' constant is simply a constant equivalent to the
 `llvm.ptrauth.sign` intrinsic, potentially fed by a discriminator
@@ -7176,7 +7150,7 @@ Some examples of expressions:
 
 `DIAssignID` nodes have no operands and are always distinct. They are used to
 link together ({ref}`#dbg_assign records <debugrecords>`) and instructions
-that store in IR. See [Debug Info Assignment Tracking](AssignmentTracking.md) for more info.
+that store in IR. See {doc}`Debug Info Assignment Tracking <AssignmentTracking>` for more info.
 
 ```llvm
 store i32 %a, ptr %a.addr, align 4, !DIAssignID !2
@@ -8680,7 +8654,6 @@ information, it is also used to derive the basic block profile count.
 For more information, see {doc}`BranchWeightMetadata`.
 
 (prof_node_VP)=
-(vp)=
 
 ##### VP
 
@@ -8786,7 +8759,7 @@ Clang emits `kcfi_type` metadata nodes for address-taken functions with
 
 The `pcsections` metadata can be attached to instructions and functions, for
 which addresses, viz. program counters (PCs), are to be emitted in specially
-encoded binary sections. More details can be found in the [PC Sections Metadata](PCSectionsMetadata.rst) documentation.
+encoded binary sections. More details can be found in the {doc}`PC Sections Metadata <PCSectionsMetadata>` documentation.
 
 (md_memprof)=
 
@@ -9259,8 +9232,10 @@ two modules together with different values for this metadata.
 
 For example:
 
-    !llvm.module.flags = !{!0}
-    !0 = !{i32 1, !"override-stack-alignment", i32 8}
+```llvm
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"override-stack-alignment", i32 8}
+```
 
 This will change the stack alignment to 8B.
 
@@ -13672,8 +13647,8 @@ function.
 
 See the {ref}`variable argument processing <int_varargs>` section.
 
-Note that the code generator does not yet fully support va\_arg on many
-targets. Also, it does not currently support va\_arg with aggregate
+Note that the code generator does not yet fully support `va_arg` on many
+targets. Also, it does not currently support `va_arg` with aggregate
 types on any target.
 
 (i_landingpad)=
@@ -13961,8 +13936,8 @@ codegen is required for `llvm.target.foo(<4 x i32>)` and
 `llvm.target.foo(<4 x float>)` then these should be split into
 different intrinsics.
 
-To learn how to add an intrinsic function, please see the [Extending
-LLVM Guide](ExtendingLLVM.rst).
+To learn how to add an intrinsic function, please see the
+{doc}`Extending LLVM Guide <ExtendingLLVM>`.
 
 (int_varargs)=
 
@@ -14102,7 +14077,7 @@ arbitrarily complex and require, for example, memory allocation.
 
 ### Accurate Garbage Collection Intrinsics
 
-LLVM's support for [Accurate Garbage Collection](GarbageCollection.md)
+LLVM's support for {doc}`Accurate Garbage Collection <GarbageCollection>`
 (GC) requires the frontend to generate code containing appropriate intrinsic
 calls and select an appropriate GC strategy which knows how to lower these
 intrinsics in a manner which is appropriate for the target collector.
@@ -14111,13 +14086,13 @@ These intrinsics allow identification of {ref}`GC roots on the stack <int_gcroot
 require {ref}`read <int_gcread>` and {ref}`write <int_gcwrite>` barriers.
 Frontends for type-safe garbage collected languages should generate
 these intrinsics to make use of the LLVM garbage collectors. For more
-details, see [Garbage Collection with LLVM](GarbageCollection.md).
+details, see {doc}`Garbage Collection with LLVM <GarbageCollection>`.
 
 LLVM provides an second experimental set of intrinsics for describing garbage
 collection safepoints in compiled code. These intrinsics are an alternative
 to the `llvm.gcroot` intrinsics, but are compatible with the ones for
 {ref}`read <int_gcread>` and {ref}`write <int_gcwrite>` barriers. The
-differences in approach are covered in the [Garbage Collection with LLVM](GarbageCollection.md) documentation. The intrinsics themselves are
+differences in approach are covered in the {doc}`Garbage Collection with LLVM <GarbageCollection>` documentation. The intrinsics themselves are
 described in {doc}`Statepoints`.
 
 (int_gcroot)=
@@ -24053,16 +24028,15 @@ integer and all arithmetic occurring in the pointer type.
 ##### Examples:
 
 ```text
+%r = call <8 x i64> @llvm.experimental.vp.strided.load.v8i64.i64(i64* %ptr, i64 %stride, <8 x i64> %mask, i32 %evl)
+;; The operation can also be expressed like this:
+
+%addr = bitcast i64* %ptr to i8*
+;; Create a vector of pointers %addrs in the form:
+;; %addrs = <%addr, %addr + %stride, %addr + 2 * %stride, ...>
+%ptrs = bitcast <8 x i8* > %addrs to <8 x i64* >
+%also.r = call <8 x i64> @llvm.vp.gather.v8i64.v8p0i64(<8 x i64* > %ptrs, <8 x i64> %mask, i32 %evl)
 ```
-
-	 %r = call <8 x i64> @llvm.experimental.vp.strided.load.v8i64.i64(i64* %ptr, i64 %stride, <8 x i64> %mask, i32 %evl)
-	 ;; The operation can also be expressed like this:
-
-	 %addr = bitcast i64* %ptr to i8*
-	 ;; Create a vector of pointers %addrs in the form:
-	 ;; %addrs = <%addr, %addr + %stride, %addr + 2 * %stride, ...>
-	 %ptrs = bitcast <8 x i8* > %addrs to <8 x i64* >
-	 %also.r = call <8 x i64> @llvm.vp.gather.v8i64.v8p0i64(<8 x i64* > %ptrs, <8 x i64> %mask, i32 %evl)
 
 
 (int_experimental_vp_strided_store)=
@@ -24109,16 +24083,15 @@ integer and all arithmetic occurring in the pointer type.
 ##### Examples:
 
 ```text
+call void @llvm.experimental.vp.strided.store.v8i64.i64(<8 x i64> %val, i64* %ptr, i64 %stride, <8 x i1> %mask, i32 %evl)
+;; The operation can also be expressed like this:
+
+%addr = bitcast i64* %ptr to i8*
+;; Create a vector of pointers %addrs in the form:
+;; %addrs = <%addr, %addr + %stride, %addr + 2 * %stride, ...>
+%ptrs = bitcast <8 x i8* > %addrs to <8 x i64* >
+call void @llvm.vp.scatter.v8i64.v8p0i64(<8 x i64> %val, <8 x i64*> %ptrs, <8 x i1> %mask, i32 %evl)
 ```
-
-	 call void @llvm.experimental.vp.strided.store.v8i64.i64(<8 x i64> %val, i64* %ptr, i64 %stride, <8 x i1> %mask, i32 %evl)
-	 ;; The operation can also be expressed like this:
-
-	 %addr = bitcast i64* %ptr to i8*
-	 ;; Create a vector of pointers %addrs in the form:
-	 ;; %addrs = <%addr, %addr + %stride, %addr + 2 * %stride, ...>
-	 %ptrs = bitcast <8 x i8* > %addrs to <8 x i64* >
-	 call void @llvm.vp.scatter.v8i64.v8p0i64(<8 x i64> %val, <8 x i64*> %ptrs, <8 x i1> %mask, i32 %evl)
 
 
 (int_vp_gather)=
