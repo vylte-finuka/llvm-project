@@ -26,10 +26,11 @@ using namespace mlir::abi;
 // through an alloca+store at the call site.
 //
 // For Expand, the single struct argument is replaced by N scalar arguments
-// (one per field).  At the callee, the N block arguments are reassembled
-// into the struct via an alloca+get_member+store+load sequence.  At the
-// call site, the struct operand is decomposed into its fields using
-// cir.extract_member.
+// (one per field).  At the callee, the N field block arguments are stored
+// directly into the parameter's own alloca (the CIRGen spill slot).  At the
+// call site, the struct operand is decomposed into its fields by reading
+// each member from the source alloca (get_member + load) when the operand is
+// a load of an alloca, or via cir.extract_member otherwise.
 
 namespace {
 
@@ -78,8 +79,7 @@ LogicalResult buildNewArgTypes(ArrayRef<Type> oldArgTypes,
              "Expand classification requires a struct type, not a union");
       assert(!recTy.getMembers().empty() &&
              "Expand classification requires at least one struct field");
-      for (Type memberTy : recTy.getMembers())
-        newArgTypes.push_back(memberTy);
+      llvm::append_range(newArgTypes, recTy.getMembers());
       break;
     }
     case ArgKind::Extend:
@@ -165,8 +165,7 @@ ArrayAttr updateArgAttrs(MLIRContext *ctx, ArrayRef<Type> origArgTypes,
       // Push one empty attribute dict per expanded field; the flattened
       // scalar arguments carry no special ABI attributes.
       auto recTy = cast<cir::RecordType>(origArgTypes[oldIdx]);
-      for (unsigned i = 0; i < recTy.getNumElements(); ++i)
-        newArgAttrs.push_back(DictionaryAttr::get(ctx));
+      newArgAttrs.append(recTy.getNumElements(), DictionaryAttr::get(ctx));
     } else if (ac.kind == ArgKind::Extend) {
       StringRef attrName = ac.signExtend ? "llvm.signext" : "llvm.zeroext";
       NamedAttribute extAttr(StringAttr::get(ctx, attrName),
@@ -339,8 +338,8 @@ void insertReturnCoercion(FunctionOpInterface funcOp, Type origRetTy,
 /// arg, change the block argument's type to a pointer and insert a load at
 /// entry so the body sees the original value type.  For each Expand arg,
 /// replace the single struct block argument with N scalar block arguments (one
-/// per field) and insert an alloca+get_member+store+load sequence at entry to
-/// reassemble the struct for body uses.
+/// per field) and store each field directly into the parameter's own alloca
+/// (the CIRGen spill slot), erasing the original whole-struct store.
 ///
 /// \p sretOffset is 1 when the function has an sret return (a hidden return
 /// pointer is prepended as block argument 0).  Expand arguments expand the
@@ -361,13 +360,13 @@ void insertArgCoercion(FunctionOpInterface funcOp,
   unsigned blockArgIdx = sretOffset;
 
   for (const ArgClassification &ac : fc.argInfos) {
-    if (blockArgIdx >= entry.getNumArguments())
-      break;
+    assert(blockArgIdx < entry.getNumArguments() &&
+           "classification count must not exceed entry block arguments");
 
     if (ac.kind == ArgKind::Expand) {
       // The block arg at blockArgIdx currently has the original struct type.
-      // Replace it with N scalar args (one per field) and insert an entry
-      // sequence that reassembles them back into the struct.
+      // Replace it with N scalar args (one per field) and store each field
+      // directly into the parameter's own alloca.
       BlockArgument origArg = entry.getArgument(blockArgIdx);
       auto recTy = cast<cir::RecordType>(origArg.getType());
       assert(recTy.isStruct() &&
@@ -377,41 +376,38 @@ void insertArgCoercion(FunctionOpInterface funcOp,
              "Expand classification requires at least one struct field");
       Location loc = funcOp.getLoc();
 
-      // Change slot 0 to field 0's type; insert slots 1..N-1 after it.
+      // CIRGen spills every by-value struct parameter into its local alloca
+      // with a single store before any other use, so the struct block arg's
+      // only use is that store.  Capture it and the destination alloca, then
+      // store the expanded fields straight into that alloca and erase the
+      // original store.  This keeps the alloca's variable name and `init`
+      // flag and avoids a reassemble-then-reload roundtrip.
+      assert(origArg.hasOneUse() &&
+             "Expand arg must have exactly one use (the CIRGen param spill)");
+      auto paramStore = cast<cir::StoreOp>(*origArg.user_begin());
+      assert(paramStore.getValue() == origArg &&
+             "Expand arg's use must be the value operand of its store");
+      auto destAlloca =
+          cast<cir::AllocaOp>(paramStore.getAddr().getDefiningOp());
+
+      // Split the single struct block arg into N scalar field block args:
+      // slot 0 becomes field 0; insert slots 1..N-1 after it.
       origArg.setType(recTy.getElementType(0));
       for (unsigned f = 1; f < numFields; ++f)
         entry.insertArgument(blockArgIdx + f, recTy.getElementType(f), loc);
 
-      // setInsertionPointToStart places each Expand arg's prolog at the
-      // top of the entry block.  When multiple Expand args are present
-      // the second call pushes its prolog before the first one, inverting
-      // the emission order relative to the classification order.  The SSA
-      // subgraphs are fully independent — each alloca is written through
-      // its own field block args — so the inverted ordering is safe.
-      rewriter.setInsertionPointToStart(&entry);
-      auto ptrTy = cir::PointerType::get(recTy);
-      uint64_t align = dl.getTypeABIAlignment(recTy);
-      auto slot = cir::AllocaOp::create(rewriter, loc, ptrTy, recTy,
-                                        rewriter.getStringAttr("expand"),
-                                        rewriter.getI64IntegerAttr(align));
-      SmallPtrSet<Operation *, 8> expandOps = {slot};
-      for (unsigned f = 0; f < numFields; ++f) {
-        Type fieldPtrTy = cir::PointerType::get(recTy.getElementType(f));
+      // Emit one get_member + store per field at the original spill's
+      // position, then drop the original whole-struct store.
+      rewriter.setInsertionPoint(paramStore);
+      for (auto [f, fieldTy] : llvm::enumerate(recTy.getMembers())) {
+        Type fieldPtrTy = cir::PointerType::get(fieldTy);
         auto fieldPtr = cir::GetMemberOp::create(rewriter, loc, fieldPtrTy,
-                                                 slot, /*name=*/"",
+                                                 destAlloca, /*name=*/"",
                                                  /*index=*/f);
-        expandOps.insert(fieldPtr);
-        auto storeOp = cir::StoreOp::create(
-            rewriter, loc, entry.getArgument(blockArgIdx + f), fieldPtr);
-        expandOps.insert(storeOp);
+        cir::StoreOp::create(rewriter, loc, entry.getArgument(blockArgIdx + f),
+                             fieldPtr);
       }
-      auto loaded = cir::LoadOp::create(rewriter, loc, recTy, slot.getResult());
-      expandOps.insert(loaded);
-
-      // Replace all original body uses of the struct block arg with the
-      // reassembled value.  The store for field 0 uses origArg and is
-      // in expandOps, so it is preserved.
-      origArg.replaceAllUsesExcept(loaded, expandOps);
+      paramStore->erase();
 
       blockArgIdx += numFields;
       continue;
@@ -423,7 +419,7 @@ void insertArgCoercion(FunctionOpInterface funcOp,
       Type oldArgTy = blockArg.getType();
       Type newArgTy = ac.coercedType;
       if (oldArgTy == newArgTy) {
-        blockArgIdx++;
+        ++blockArgIdx;
         continue;
       }
       blockArg.setType(newArgTy);
@@ -457,7 +453,7 @@ void insertArgCoercion(FunctionOpInterface funcOp,
     }
     // Ignore, Extend, and Direct-without-coerce need no block-level changes.
 
-    blockArgIdx++;
+    ++blockArgIdx;
   }
 }
 
@@ -645,48 +641,32 @@ LogicalResult CIRABIRewriteContext::rewriteFunctionDefinition(
 
       Block &entry = body.front();
 
-      // Build a mapping from classification index to the block argument
-      // start index it occupies after insertArgCoercion has run.  Each
-      // non-Expand classification occupies one block argument slot; each
-      // Expand classification occupies N slots (its number of fields).
-      // This mapping is needed because the Ignore-drop loop below erases
-      // by block argument index, not by classification index.
-      SmallVector<unsigned> classToBlockArg(fc.argInfos.size());
-      {
-        unsigned runningIdx = sretOffset;
-        for (unsigned i = 0; i < fc.argInfos.size(); ++i) {
-          classToBlockArg[i] = runningIdx;
-          if (fc.argInfos[i].kind == ArgKind::Expand) {
-            auto recTy = cast<cir::RecordType>(oldArgTypes[i]);
-            runningIdx += recTy.getNumElements();
-          } else {
-            runningIdx += 1;
+      // Drop each Ignored argument's block argument, replacing any remaining
+      // body uses with a poison constant (an Ignore arg is not passed at the
+      // ABI level, so any use is vacuous; poison says exactly that).  Walk
+      // forward with a running block-argument index that mirrors
+      // insertArgCoercion: an Expand arg occupies N slots, every other kept
+      // kind one.  On erase, do not advance the index -- the next block
+      // argument shifts into the vacated slot.
+      unsigned blockArgIdx = sretOffset;
+      for (auto [i, ac] : llvm::enumerate(fc.argInfos)) {
+        if (blockArgIdx >= entry.getNumArguments())
+          break;
+        if (ac.kind == ArgKind::Ignore) {
+          BlockArgument arg = entry.getArgument(blockArgIdx);
+          if (!arg.use_empty()) {
+            builder.setInsertionPointToStart(&entry);
+            Value poison =
+                createIgnoredValue(builder, funcOp.getLoc(), arg.getType());
+            arg.replaceAllUsesWith(poison);
           }
-        }
-      }
-
-      // For each Ignored argument: drop the block argument and, if the
-      // body still references it, replace those uses with a poison
-      // constant.  Ignore classifications mean the value is empty / not
-      // passed at the ABI level, so any remaining uses are vacuous;
-      // poison says exactly that.  Iterate in reverse classification
-      // order so that erasing a later block argument does not shift the
-      // block argument indices for earlier classifications.
-      for (int classIdx = static_cast<int>(fc.argInfos.size()) - 1;
-           classIdx >= 0; --classIdx) {
-        if (fc.argInfos[classIdx].kind != ArgKind::Ignore)
+          entry.eraseArgument(blockArgIdx);
           continue;
-        unsigned realIdx = classToBlockArg[classIdx];
-        if (realIdx >= entry.getNumArguments())
-          continue;
-        BlockArgument arg = entry.getArgument(realIdx);
-        if (!arg.use_empty()) {
-          builder.setInsertionPointToStart(&entry);
-          Value poison =
-              createIgnoredValue(builder, funcOp.getLoc(), arg.getType());
-          arg.replaceAllUsesWith(poison);
         }
-        entry.eraseArgument(realIdx);
+        if (ac.kind == ArgKind::Expand)
+          blockArgIdx += cast<cir::RecordType>(oldArgTypes[i]).getNumElements();
+        else
+          ++blockArgIdx;
       }
     }
 
@@ -776,6 +756,11 @@ LogicalResult CIRABIRewriteContext::rewriteCallSite(
   ValueRange argOperands = call.getArgOperands();
   newArgs.reserve(argOperands.size());
 
+  // Whole-struct loads replaced by direct member loads for Expand operands.
+  // They can only be erased once the original call (their remaining user) is
+  // gone, so collect them and erase the dead ones at the end.
+  SmallVector<cir::LoadOp> replacedWholeLoads;
+
   // Capture original arg types before building newArgs (byval slots change
   // the wire argument from T to !cir.ptr<T>, so we save the pre-rewrite
   // types here for use in updateArgAttrs).
@@ -794,15 +779,39 @@ LogicalResult CIRABIRewriteContext::rewriteCallSite(
     Value arg = argOperands[idx];
     if (ac.kind == ArgKind::Expand) {
       // Decompose the struct value into its constituent scalar fields and
-      // pass each as a separate argument.  cir.extract_member extracts the
-      // field value directly without a memory round-trip.
+      // pass each as a separate argument.
       auto recTy = cast<cir::RecordType>(arg.getType());
       assert(recTy.isStruct() &&
              "Expand classification requires a struct type, not a union");
-      for (unsigned f = 0; f < recTy.getNumElements(); ++f) {
-        Value field =
-            cir::ExtractMemberOp::create(builder, call.getLoc(), arg, f);
-        newArgs.push_back(field);
+
+      // When the operand is a load straight from an alloca, read each member
+      // directly from that alloca (get_member + load) instead of loading the
+      // whole struct and extracting from it; this matches classic CodeGen.
+      // The member loads are emitted at the original load's position so they
+      // observe the same memory state.  When there is no source alloca (a
+      // call result, compound literal, etc.) cir.extract_member on the value
+      // is the only correct lowering.
+      auto wholeLoad = arg.getDefiningOp<cir::LoadOp>();
+      cir::AllocaOp srcAlloca;
+      if (wholeLoad)
+        srcAlloca = wholeLoad.getAddr().getDefiningOp<cir::AllocaOp>();
+
+      if (srcAlloca) {
+        OpBuilder::InsertionGuard guard(builder);
+        builder.setInsertionPoint(wholeLoad);
+        for (auto [f, fieldTy] : llvm::enumerate(recTy.getMembers())) {
+          Type fieldPtrTy = cir::PointerType::get(fieldTy);
+          Value fieldPtr = cir::GetMemberOp::create(
+              builder, call.getLoc(), fieldPtrTy, srcAlloca, /*name=*/"",
+              /*index=*/f);
+          newArgs.push_back(
+              cir::LoadOp::create(builder, call.getLoc(), fieldTy, fieldPtr));
+        }
+        replacedWholeLoads.push_back(wholeLoad);
+      } else {
+        for (unsigned f = 0; f < recTy.getNumElements(); ++f)
+          newArgs.push_back(
+              cir::ExtractMemberOp::create(builder, call.getLoc(), arg, f));
       }
     } else if (ac.kind == ArgKind::Direct && ac.coercedType &&
                arg.getType() != ac.coercedType) {
@@ -978,5 +987,16 @@ LogicalResult CIRABIRewriteContext::rewriteCallSite(
   }
 
   call->erase();
+
+  // Now that the original call is gone, drop any whole-struct loads whose
+  // members we read directly from the source alloca, if nothing else uses
+  // them.  A single load can feed several Expand operands (e.g. after CSE
+  // merges identical loads), so dedupe before erasing to avoid touching a
+  // freed op twice.
+  SmallPtrSet<Operation *, 4> erased;
+  for (cir::LoadOp wholeLoad : replacedWholeLoads)
+    if (erased.insert(wholeLoad).second && wholeLoad.use_empty())
+      wholeLoad->erase();
+
   return success();
 }
