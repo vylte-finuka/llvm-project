@@ -1,0 +1,130 @@
+{
+  "name": "Maratine",
+  "scopeName": "source.maratine",
+  "fileTypes": ["mart"],
+  "version": "1.0.0",
+  "author": "Vyft Ltd",
+  "description": "Maratine language for Slura OS",
+  
+  "patterns": [
+    {
+      "name": "comment.line.maratine",
+      "match": "//.*$",
+      "comment": "Single line comments"
+    },
+    {
+      "name": "comment.block.maratine",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    {
+      "name": "string.quoted.double.maratine",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.maratine",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "meta.import.maratine",
+      "match": "\\b(std)(\\*\\*\\*)([a-zA-Z_][a-zA-Z0-9_]*)(\\*\\*\\*)?([a-zA-Z_][a-zA-Z0-9_]*)?\\b",
+      "captures": {
+        "1": { "name": "keyword.control.maratine" },
+        "2": { "name": "punctuation.separator.maratine" },
+        "3": { "name": "variable.other.readwrite.maratine" },
+        "4": { "name": "punctuation.separator.maratine" },
+        "5": { "name": "variable.other.readwrite.maratine" }
+      }
+    },
+    {
+      "name": "meta.function.declaration.maratine",
+      "match": "\\b(rel)\\s+((op|cl))\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\[",
+      "captures": {
+        "1": { "name": "keyword.control.maratine" },
+        "2": { "name": "keyword.modifier.maratine" },
+        "4": { "name": "entity.name.function.maratine" }
+      }
+    },
+    {
+      "name": "meta.variable.declaration.maratine",
+      "match": "\\b(let)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+      "captures": {
+        "1": { "name": "keyword.control.maratine" },
+        "2": { "name": "variable.other.declaration.maratine" },
+        "3": { "name": "punctuation.separator.maratine" }
+      }
+    },
+    {
+      "name": "meta.conditional.maratine",
+      "match": "\\b(if)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\[",
+      "captures": {
+        "1": { "name": "keyword.control.maratine" },
+        "2": { "name": "variable.other.readwrite.maratine" }
+      }
+    },
+    {
+      "name": "keyword.other.maratine",
+      "match": "\\b(log|ret|sendit)\\s*(:)?",
+      "captures": {
+        "1": { "name": "keyword.other.maratine" },
+        "2": { "name": "punctuation.separator.maratine" }
+      }
+    },
+    {
+      "name": "meta.ui.component.maratine",
+      "match": "</?([A-Z][a-zA-Z0-9]*)>",
+      "captures": {
+        "1": { "name": "entity.name.tag.maratine" }
+      }
+    },
+    {
+      "name": "meta.decorator.maratine",
+      "match": "#\\[([a-zA-Z_][a-zA-Z0-9_]*)\\]",
+      "captures": {
+        "1": { "name": "variable.other.readwrite.maratine" }
+      }
+    },
+    {
+      "name": "constant.numeric.maratine",
+      "match": "\\b\\d+\\.?\\d*\\b"
+    },
+    {
+      "name": "support.type.maratine",
+      "match": "\\b(i32|i64|f32|f64|bool|void|auto)\\b"
+    },
+    {
+      "name": "keyword.operator.maratine",
+      "match": "[+\\-*/%=<>!&|^]"
+    },
+    {
+      "name": "punctuation.brackets.maratine",
+      "match": "[\\[\\]{}():;,.]"
+    }
+  ],
+  
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.maratine",
+          "match": "\\b(rel|let|if|ret|std)\\b"
+        },
+        {
+          "name": "keyword.modifier.maratine",
+          "match": "\\b(op|cl)\\b"
+        },
+        {
+          "name": "keyword.ui.maratine",
+          "match": "\\b(View|Text|Button|Image)\\b"
+        },
+        {
+          "name": "keyword.runtime.maratine",
+          "match": "\\b(log|print|sendit)\\b"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,54 @@
+//___
+//___ AuthARoot.mara – Authentication Root (Certificate/Key Store)
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Gère le chargement, la validation et le stockage des
+//___     certificats X.509 et des clés privées utilisées par les
+//___     modules de sécurité du bundle.
+//___
+
+#base <MaratineKit>;
+#include <cstddef>
+#include <openssl/x509.h>
+#include <openssl/pem.h>
+
+//___
+//___ Load a certificate from a file (PEM format)
+//___
+rel op LoadCert: <String> [
+    let certPtr i32 = X509_load_cert_file(path.c_str());
+    if (certPtr == 0) {
+        log: "Failed to load certificate from: " + path;
+    } else {
+        log: "Successfully loaded certificate from: " + path;
+    }
+    ret certPtr;
+];
+
+//___
+//___ Validate a certificate chain (returns true/false)
+//___
+rel op ValidateCertChain: <cert i32> [
+    let ok i32 = X509_verify_cert(cert);
+    if (ok) {
+        log: "Certificate chain is valid.";
+    } else {
+        log: "Certificate chain validation failed.";
+    }
+    ret ok;
+];
+
+//___
+//___ Retrieve the public key from a certificate
+//___
+rel op GetPubKey: <cert i32> [
+    let keyPtr i32 = X509_get_pubkey(cert);
+    if (keyPtr == 0) {
+        log: "Failed to extract public key from certificate.";
+    } else {
+        log: "Successfully extracted public key.";
+    }
+    ret keyPtr;
+];

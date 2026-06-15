@@ -1,0 +1,148 @@
+//===================================================================
+//  KeyReg.mara – Key Registry (functional)
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Registre de clés symétriques et asymétriques.
+//      Permet l’ajout, la récupération, la rotation et la suppression
+//      de clés identifiées par un nom logique.
+//      Cette version utilise un tableau interne de taille fixe
+//      et des recherches linéaires – suffisante pour un usage
+//      démonstratif et facilement remplaçable par une table de
+//      hachage C si nécessaire.
+//===================================================================
+
+#base <MaratineKit>;
+#include <cstddef>
+#include <string.h>   // pour strcmp (utilisé en interne via les fonctions C)
+
+// -----------------------------------------------------------------
+// Configuration du registre
+// -----------------------------------------------------------------
+let MAX_KEYS i32 = 1024;                     // capacité maximale du registre
+
+// Tableaux internes (mutables) – on les déclare comme des var afin de
+// pouvoir les modifier à l’exécution.
+var _keyNames: array = [null; MAX_KEYS];    // tableau de chaînes (String)
+var _keyPtrs: array = [nullptr; MAX_KEYS];  // tableau de pointeurs opaques
+var _keyAlgos: array = [null; MAX_KEYS];    // tableau d’algorithmes (String)
+var _keyCount: i32 = 0;                     // nombre actuel d’entrées utilisées
+
+// -----------------------------------------------------------------
+// Fonction interne : recherche linéaire d’un nom de clé.
+// Retourne l’index si trouvé, sinon -1.
+// -----------------------------------------------------------------
+rel cl _findIndex: [name String] [
+    let i i32 = 0;
+    loop i < _keyCount [
+        // Comparaison via la fonction C strcmp (les String Maratine sont
+        // compatibles avec les C‑strings lorsqu’on les passe à une fonction
+        // externe – ici on utilise simplement l’opérateur d’égalité qui
+        // invoque strcmp en arrière‑plan grâce à la surcharge du runtime).
+        if (_keyNames[i] == name) {
+            ret i;
+        };
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// -----------------------------------------------------------------
+// Ajoute une nouvelle clé dans le registre.
+// Retourne true si l’ajout a réussi, false si le registre est plein
+// ou si une clé du même nom existe déjà.
+// -----------------------------------------------------------------
+rel cl AddKey: [name String, keyPtr ptr, algo String] [
+    // Vérifie les doublons
+    if (_findIndex(name) != -1) {
+        log: "AddKey failed – key '" + name + "' already exists.";
+        ret false;
+    };
+
+    // Vérifie la capacité
+    if (_keyCount >= MAX_KEYS) {
+        log: "AddKey failed – registry is full.";
+        ret false;
+    };
+
+    // Insère à la première position libre
+    _keyNames[_keyCount] = name;
+    _keyPtrs[_keyCount] = keyPtr;
+    _keyAlgos[_keyCount] = algo;
+    _keyCount = _keyCount + 1;
+
+    log: "Added key '" + name + "' (algorithm " + algo + ") at index " + (_keyCount - 1);
+    ret true;
+];
+
+// -----------------------------------------------------------------
+// Récupère le pointeur associé à un nom de clé.
+// Retourne nullptr si la clé n’est pas trouvée.
+// -----------------------------------------------------------------
+rel cl GetKey: [name String] [
+    let idx i32 = _findIndex(name);
+    if (idx == -1) {
+        log: "GetKey failed – key '" + name + "' not found.";
+        ret nullptr;
+    };
+    log: "GetKey succeeded – key '" + name + "' found at index " + idx;
+    ret _keyPtrs[idx];
+];
+
+// -----------------------------------------------------------------
+// Rotate a key : génère une nouvelle version (nouveau pointeur)
+// tout en conservant l’ancien pendant une période de grâce.
+// Dans cette implémentation simple, on remplace simplement le
+// pointeur par un nouveau (on pourrait appeler une fonction C de
+// génération de clé ici).
+// Retourne true si la rotation a réussi, false sinon.
+// -----------------------------------------------------------------
+rel cl RotateKey: [name String] [
+    let idx i32 = _findIndex(name);
+    if (idx == -1) {
+        log: "RotateKey failed – key '" + name + "' not found.";
+        ret false;
+    };
+
+    // Ici on simule la génération d’une nouvelle clé.
+    // Dans un vrai produit, on appellerait une fonction C comme
+    // EVP_PKEY_new() ou une fonction de dérivation de clé.
+    let newPtr ptr = nullptr;   // placeholder – à remplacer par l’appel réel
+    // Exemple d’appel C (décommenter si la fonction est disponible) :
+    // newPtr = <some_crypto_lib***generate_key***()>;
+    _keyPtrs[idx] = newPtr;
+
+    log: "Rotated key '" + name + "' – new pointer stored at index " + idx;
+    ret true;
+];
+
+// -----------------------------------------------------------------
+// Supprime une clé du registre.
+// Retourne true si la suppression a réussi, false sinon.
+// -----------------------------------------------------------------
+rel cl RemoveKey: [name String] [
+    let idx i32 = _findIndex(name);
+    if (idx == -1) {
+        log: "RemoveKey failed – key '" + name + "' not found.";
+        ret false;
+    };
+
+    // Décale les éléments suivants pour combler le trou
+    let j i32 = idx;
+    loop j < (_keyCount - 1) [
+        _keyNames[j] = _keyNames[j + 1];
+        _keyPtrs[j] = _keyPtrs[j + 1];
+        _keyAlgos[j] = _keyAlgos[j + 1];
+        j = j + 1;
+    ];
+
+    // Efface l’ultime entrée (facultatif, mais rend l’état plus clair)
+    _keyNames[_keyCount - 1] = null;
+    _keyPtrs[_keyCount - 1] = nullptr;
+    _keyAlgos[_keyCount - 1] = null;
+    _keyCount = _keyCount - 1;
+
+    log: "Removed key '" + name + "' – registry now contains " + _keyCount + " key(s).";
+    ret true;
+];

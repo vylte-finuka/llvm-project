@@ -1,0 +1,46 @@
+//===================================================================
+//  SRIDAtt.mara – SRID Attribution
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Retourne l’identifiant de sécurité (SRID) défini dans le
+//      manifeste Maraset (SRID_helloworld_002) et l’associe au
+//      PID du processus courant (obtenu via le module ObtInfo).
+//      Aucune accolade {} n’est utilisée – seuls les crochets []
+//      délimitent les blocs Maratine.
+//===================================================================
+
+#base <MaratineKit>;
+#include <llvm/Support/Process.h>   // LLVM Process API (used indirectly by ObtInfo)
+#include <llvm/Support/Errc.h>      // For error handling (optional)
+
+using namespace llvm::sys;
+
+// -----------------------------------------------------------------
+// Retourne le SRID du package (lu depuis Maraset) ainsi que le PID
+// du processus en cours.
+// -----------------------------------------------------------------
+rel cl GetSRIDAndPID: [] [
+    // SRID fixé dans le manifeste Maraset du bundle
+    let sid String = "SRID_helloworld_002";
+
+    // PID du processus actuel – on réutilise le module ObtInfo du kit Maratine
+    let pid i32 = <MaratineKit***PIDActivity***ObtInfo>.GetPID();
+
+    // Journalisation utile pour le débogage
+    log: "SRIDAtt – SRID: " + sid + " | PID: " + pid;
+
+    // On retourne le SRID (le PID peut être récupéré séparément si besoin)
+    ret sid;
+];
+
+// -----------------------------------------------------------------
+// Variante qui ne retourne que le SRID (utile lorsqu’on veut
+// simplement lire l’attribut de sécurité du bundle).
+// -----------------------------------------------------------------
+rel cl GetSRID: [] [
+    let sid String = "SRID_helloworld_002";
+    log: "SRIDAtt – SRID: " + sid;
+    ret sid;
+];

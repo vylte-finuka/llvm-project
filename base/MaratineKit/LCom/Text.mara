@@ -1,0 +1,40 @@
+//___
+//___ Text.mara – Text rendering utilities
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Fournit des fonctions pour rendre du texte à l'écran, mesurer le texte, etc.
+
+//___
+
+#include <cstddef>
+#include <MaratineKit***LCom***TxtTpe***String.mara>   // For string utilities
+
+//___
+//___ Render a string at a given position with a given font and color.
+//___
+rel op RenderText: <text String, x i32, y i32, font i32, color u32> [
+    log: "Rendering text: " + text + " at (" + x + ", " + y + ") with font and color 0x" + color;
+    ret 0; // success
+];
+
+//___
+//___ Measure the width and height of a string when rendered with a given font.
+//___
+rel op MeasureText: <text String, font i32> [
+    let width i32 = 0;
+    let height i32 = 0;
+    log: "Measured text: width=" + width + ", height=" + height;
+    let result i32[2] = [width; height];
+    ret result;
+];
+
+//___
+//___ Get the default font size (in points).
+//___
+rel op GetDefaultFontSize: <> [
+    let size f32 = 12.0; // Default
+    log: "Default font size: " + size + "pt";
+    ret size;
+];

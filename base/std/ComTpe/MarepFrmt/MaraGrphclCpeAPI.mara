@@ -1,0 +1,201 @@
+//___
+//___ MaraGrphclCpeAPI.mara – Low‑level Graphics API (LLVM‑based)
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     API de bas niveau pour la gestion de la colorimétrie, du HDR,
+//___     du chargement de profils ICC et de l’enumération des capacités
+//___     d’affichage.  Toutes les fonctions utilisent les en‑têtes LLVM
+//___     (llvm/Support/*) pour le logging, la manipulation de chaînes et
+//___     les vérifications de fichiers.
+//___     Cette API est conçue pour être utilisée par le moteur graphique
+//___     Maratine Graphical Compute, fournissant une abstraction similaire
+//___     à DirectX12 pour la gestion de l'état de rendu.
+//___
+
+#base <MaratineKit>;
+#include "llvm/Support/Errc.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/ADT/SmallVector.h"
+
+using namespace llvm;
+
+// -----------------------------------------------------------------
+// État interne de l'API graphique (similaire à un contexte DX12)
+// -----------------------------------------------------------------
+var _currentColorSpace String = "sRGB";
+var _hdrEnabled i32 = 0;
+var _iccProfileLoaded i32 = 0;
+var _currentIccPath String = "";
+
+// -----------------------------------------------------------------
+// SetColorSpace – configure l’espace de couleur du pipeline graphique
+// -----------------------------------------------------------------
+rel cl SetColorSpace: <space String> [
+    // Valider l'espace de couleur demandé
+    if (space == "" || space == null) then [
+        errs() << "MaraGrphclCpeAPI: Error - Empty color space specified\n";
+        ret -1;
+    ];
+    
+    // Vérifier si l'espace est supporté (liste simplifiée - en production, 
+    // ceci viendrait des capacités du driver)
+    let supported array = ["sRGB"; "AdobeRGB"; "DCI-P3"; "Rec2020"; "Linear"];
+    let supportedBool bool = false;
+    let i i32 = 0;
+    loop i < 5 [
+        if (supported[i] == space) then [
+            supportedBool = true;
+            break;
+        ];
+        i = i + 1;
+    ];
+    
+    if (!supportedBool) then [
+        errs() << "MaraGrphclCpeAPI: Error - Unsupported color space: " << space << "\n";
+        ret -2;
+    ];
+    
+    // Mettre à jour l'état interne
+    _currentColorSpace = space;
+    
+    // Appeler le pilote GPU réel pour configurer l'espace de couleur
+    // On suppose que DrvAPIInterCon a une fonction GpuSetColorSpace
+    let gpuResult i32 = <DrvAPIInterCon***GpuSetColorSpace***>(space);
+    if (gpuResult != 0) then [
+        errs() << "MaraGrphclCpeAPI: GPU driver failed to set color space to " << space << " (code " << gpuResult << ")\n";
+        // On garde l'état interne cohérent même si le pilote échoue
+        // (en production, on pourrait vouloir revenir à l'état précédent)
+        ret gpuResult;
+    ];
+    
+    // Log via LLVM raw_ostream (compatible avec la sortie Maratine)
+    outs() << "MaraGrphclCpeAPI: Color space set to " << space << "\n";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// SetHDR – active ou désactive le mode HDR
+// -----------------------------------------------------------------
+rel cl SetHDR: <enabled i32> [
+    // Éviter les appels redondants
+    if (_hdrEnabled == enabled) then [
+        outs() << "MaraGrphclCpeAPI: HDR already " << (enabled != 0 ? "enabled" : "disabled") << "\n";
+        ret 0;
+    ];
+    
+    // Vérifier les capacités HDR du système (en production, ceci viendrait 
+    // de GetDisplayCapabilities ou d'une requête système)
+    let hdrSupported i32 = 1; // Placeholder - en réalité, vérifier les capacités
+    
+    if (enabled != 0 && hdrSupported == 0) then [
+        errs() << "MaraGrphclCpeAPI: Error - HDR requested but not supported by hardware\n";
+        ret -1;
+    ];
+    
+    // Mettre à jour l'état interne
+    _hdrEnabled = enabled;
+    
+    // Appeler le pilote GPU réel pour activer/désactiver le HDR
+    let gpuResult i32 = <DrvAPIInterCon***GpuSetHDR***>(enabled);
+    if (gpuResult != 0) then [
+        errs() << "MaraGrphclCpeAPI: GPU driver failed to " << (enabled != 0 ? "enable" : "disable") << " HDR (code " << gpuResult << ")\n";
+        // Revenir à l'état précédent en cas d'échec
+        _hdrEnabled = !enabled;
+        ret gpuResult;
+    ];
+    
+    // Log via LLVM raw_ostream
+    outs() << "MaraGrphclCpeAPI: HDR " << (enabled != 0 ? "enabled" : "disabled") << "\n";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// LoadICCProfile – charge un profil ICC depuis le système de fichiers
+// -----------------------------------------------------------------
+rel cl LoadICCProfile: <path String> [
+    // Valider le chemin
+    if (path == "" || path == null) then [
+        errs() << "MaraGrphclCpeAPI: Error - Empty ICC profile path specified\n";
+        ret -1;
+    ];
+    
+    // Vérifier l’existence du fichier avec LLVM FS
+    if (!sys::fs::exists(path)) then [
+        errs() << "MaraGrphclCpeAPI: Error - ICC profile not found: " << path << "\n";
+        ret -2;
+    ];
+    
+    // Vérifier l'extension du fichier (optionnel mais recommandé)
+    let lowerPath String = path.toLower(); // Supposons une méthode toLower() existe
+    if (!lowerPath.endsWith(".icc") && !lowerPath.endsWith(".icm")) then [
+        outs() << "MaraGrphclCpeAPI: Warning - ICC profile file does not have .icc or .icm extension: " << path << "\n";
+        // On continue quand même car certains systèmes utilisent d'autres extensions
+    ];
+    
+    // Charger le contenu du fichier (en production, on ferait cela de manière efficace)
+    // Pour cet exemple, on suppose que le pilote GPU peut prendre un chemin de fichier
+    // Dans une implémentation réelle, on lirait le fichier et passerait les données binaires
+    let fileSize u64 = sys::fs::file_size(path);
+    if (fileSize == 0) then [
+        errs() << "MaraGrphclCpeAPI: Error - ICC profile file is empty: " << path << "\n";
+        ret -3;
+    ];
+    
+    // Limiter la taille raisonnable d'un profil ICC (généralement < 10MB)
+    if (fileSize > 10 * 1024 * 1024) then [
+        errs() << "MaraGrphclCpeAPI: Error - ICC profile file too large (>10MB): " << path << "\n";
+        ret -4;
+    ];
+    
+    // Mettre à jour l'état interne
+    _iccProfileLoaded = true;
+    _currentIccPath = path;
+    
+    // Appeler le pilote GPU réel pour charger le profil ICC
+    // On suppose que DrvAPIInterCon a une fonction GpuLoadICCProfileFromFile
+    let gpuResult i32 = <DrvAPIInterCon***GpuLoadICCProfileFromFile***>(path);
+    if (gpuResult != 0) then [
+        errs() << "MaraGrphclCpeAPI: GPU driver failed to load ICC profile from " << path << " (code " << gpuResult << ")\n";
+        // Revenir à l'état précédent
+        _iccProfileLoaded = false;
+        _currentIccPath = "";
+        ret gpuResult;
+    ];
+    
+    // Log via LLVM raw_ostream
+    outs() << "MaraGrphclCpeAPI: ICC profile loaded successfully from " << path << " (" << fileSize << " bytes)\n";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// GetDisplayCapabilities – retourne les formats et plages dynamiques
+//      supportés par le matériel d’affichage.
+// -----------------------------------------------------------------
+rel cl GetDisplayCapabilities: <> [
+    // En production, on interrogerait le pilote GPU pour obtenir les capacités réelles
+    // On suppose que DrvAPIInterCon a une fonction GpuGetDisplayCapabilities
+    // qui retourne un tableau de chaînes Maratine
+    
+    let caps ptr ptr = <DrvAPIInterCon***GpuGetDisplayCapabilities***>();
+    
+    if (caps ptr == nullptr) then [
+        errs() << "MaraGrphclCpeAPI: Error - Failed to get display capabilities from GPU driver\n";
+        // Retourner un tableau de secours avec des capacités de base
+        let fallback array = ["RGBA8"; "BGRA8"; "RGB8"];
+        outs() << "MaraGrphclCpeAPI: Returning fallback display capabilities\n";
+        ret fallback;
+    ];
+    
+    // Convertir le pointeur C en tableau Maratine (en supposant une convention spécifique)
+    // En réalité, cette conversion dépendrait de l'implémentation du pilote
+    // Pour cet exemple, on suppose que le pilote retourne un tableau Maratine valide
+    let capsArray array = <cstd***array***>caps ptr;
+    
+    // Log via LLVM raw_ostream
+    outs() << "MaraGrphclCpeAPI: Returning display capabilities from GPU driver\n";
+    ret capsArray;
+];

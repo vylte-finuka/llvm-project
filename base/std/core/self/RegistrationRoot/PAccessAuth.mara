@@ -1,0 +1,53 @@
+//___
+//___ PAccessAuth.mara – Privileged Access & Authentication
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Vérifie l’intégrité des certificats et des clés,
+//___     autorise ou refuse l’accès aux opérations sensibles,
+//___     et consigne chaque utilisation dans un journal de
+//___     cycle de vie.
+//___
+
+#base <MaratineKit>;
+#include <cstddef>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+
+//___
+//___ Verify the signature of a certificate using a trusted CA
+//___
+rel cl VerifyCertSignature: [cert ptr, caPtr ptr] [
+    let ok bool = X509_verify(cert, caPtr);
+    log: "Verifying certificate signature against CA";
+    ret ok;
+];
+
+//___
+//___ Check that a private key matches a public certificate
+//___
+rel cl KeyMatchesCert: [keyPtr ptr, certPtr ptr] [
+    let pubKey ptr = X509_get_pubkey(certPtr);
+    let match bool = EVP_PKEY_eq(keyPtr, pubKey);
+    log: "Checking key‑certificate match";
+    ret match;
+];
+
+//___
+//___ Log an access attempt (success or failure)
+//___
+rel cl LogAccess: [subject String, object String, granted bool] [
+    let result String = if granted then "GRANTED" else "DENIED";
+    log: "Access [" + subject + " -> " + object + "] " + result;
+    ret 0;
+];
+
+//___
+//___ Increment a usage counter for a given key (for life‑cycle tracking)
+//___
+rel cl IncKeyUsage: [keyId i32] [
+    log: "Incrementing usage counter for key ID: " + keyId;
+    // Implementation: update a table or atomic counter
+    ret 0;
+];

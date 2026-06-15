@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<syntax name="Maratine" version="1.0" 
+        extensions="mart"
+        scope="text.maratine"
+        uuid="com.vyft.maratine.syntax">
+    
+    <meta name="version" value="1.0"/>
+    <meta name="author" value="Vyft Ltd"/>
+    <meta name="description" value="Syntax highlighting for Maratine programming language"/>
+    <meta name="license" value="Proprietary"/>
+    
+    <!-- Keywords -->
+    <dictionary>
+        <keyword name="keyword.control">
+            <string>if</string>
+            <string>rel</string>
+            <string>let</string>
+            <string>ret</string>
+        </keyword>
+        
+        <keyword name="keyword.visibility">
+            <string>op</string>
+            <string>cl</string>
+        </keyword>
+        
+        <keyword name="keyword.constant">
+            <string>true</string>
+            <string>false</string>
+            <string>nil</string>
+        </keyword>
+        
+        <keyword name="keyword.declaration">
+            <string>std</string>
+            <string>module</string>
+            <string>import</string>
+        </keyword>
+        
+        <keyword name="keyword.ui">
+            <string>View</string>
+            <string>Text</string>
+            <string>Button</string>
+            <string>Image</string>
+        </keyword>
+        
+        <keyword name="keyword.runtime">
+            <string>log</string>
+            <string>print</string>
+            <string>sendit</string>
+        </keyword>
+    </dictionary>
+    
+    <!-- Comments -->
+    <rules>
+        <include syntax="text.xml.comment"/>
+        
+        <rule name="comment.line">
+            <pattern>(//)(.*?)$</pattern>
+            <capture name="punctuation.definition">\1</capture>
+            <capture name="comment.text">\2</capture>
+        </rule>
+        
+        <!-- String Literals -->
+        <rule name="string.quoted.double">
+            <pattern>"(?:\\.|[^"\\])*"</pattern>
+        </rule>
+        
+        <!-- Imports std***module***name -->
+        <rule name="meta.import">
+            <pattern>\b(std)(\*\*\*)([a-zA-Z_][a-zA-Z0-9_]*)(\*\*\*)?([a-zA-Z_][a-zA-Z0-9_]*)?</pattern>
+            <capture name="keyword.import">\1</capture>
+            <capture name="punctuation.delimiter">\2</capture>
+            <capture name="variable.module">\3</capture>
+            <capture name="punctuation.delimiter">\4</capture>
+            <capture name="variable.module">\5</capture>
+        </rule>
+        
+        <!-- Function declarations: rel op/cl name[ -->
+        <rule name="meta.function.declaration">
+            <pattern>\b(rel)\s+((op|cl))\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[</pattern>
+            <capture name="keyword">\1</capture>
+            <capture name="keyword.visibility">\2</capture>
+            <capture name="entity.name.function">\4</capture>
+        </rule>
+        
+        <!-- Variable declaration: let name: type -->
+        <rule name="meta.variable.declaration">
+            <pattern>\b(let)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(:)</pattern>
+            <capture name="keyword">\1</capture>
+            <capture name="variable.name">\2</capture>
+            <capture name="punctuation.delimiter">\3</capture>
+        </rule>
+        
+        <!-- Conditions: if condition [ -->
+        <rule name="meta.conditional">
+            <pattern>\b(if)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[</pattern>
+            <capture name="keyword.control">\1</capture>
+            <capture name="variable.condition">\2</capture>
+        </rule>
+        
+        <!-- Log statement: log: value -->
+        <rule name="meta.log">
+            <pattern>\b(log)(:)</pattern>
+            <capture name="keyword.runtime">\1</capture>
+            <capture name="punctuation.delimiter">\2</capture>
+        </rule>
+        
+        <!-- UI Components: <ComponentName> -->
+        <rule name="meta.ui.component">
+            <pattern>&lt;(/?)([A-Z][a-zA-Z0-9]*)(.*?)&gt;</pattern>
+            <capture name="punctuation.definition">&lt;</capture>
+            <capture name="punctuation.definition">\1</capture>
+            <capture name="entity.name.tag">\2</capture>
+            <capture name="invalid">\3</capture>
+            <capture name="punctuation.definition">&gt;</capture>
+        </rule>
+        
+        <!-- Decorators: #[Name] -->
+        <rule name="meta.decorator">
+            <pattern>#\[([a-zA-Z_][a-zA-Z0-9_]*)\]</pattern>
+            <capture name="punctuation.definition">#\[</capture>
+            <capture name="variable.decorator">\1</capture>
+            <capture name="punctuation.definition">\]</capture>
+        </rule>
+        
+        <!-- Numbers -->
+        <rule name="constant.numeric">
+            <pattern>\b(\d+\.?\d*|\.\d+)\b</pattern>
+        </rule>
+        
+        <!-- Type annotations -->
+        <rule name="support.type">
+            <pattern>\b(i32|i64|f32|f64|bool|void|auto)\b</pattern>
+        </rule>
+        
+        <!-- Operators -->
+        <rule name="keyword.operator">
+            <pattern>[+\-*/%=&lt;&gt;!&amp;|^]</pattern>
+        </rule>
+        
+        <!-- Brackets and Delimiters -->
+        <rule name="punctuation">
+            <pattern>[\[\]{}():;,.]</pattern>
+        </rule>
+    </rules>
+</syntax>

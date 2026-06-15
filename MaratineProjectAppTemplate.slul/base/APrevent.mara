@@ -1,0 +1,39 @@
+//===================================================================
+//  LAPrevent.mart – Gestion de l’événement d’affichage (Layout Access Process)
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Ce module définit l’événement d’affichage qui charge le layout UI
+//      (ResLayout.xml), crée le texte « Hello World ! », le loggue et
+//      expose le layout via le composant <ResLayout>.  Il utilise les
+//      APIs MaratineKit, le format du bundle (MarepFrmt) et le layout
+//      slasset.
+//===================================================================
+
+#base <std***ComTpe***SlulFrmt[ MathSafety, DrvManSpec ]>;
+#base <MaratineKit>;
+#base <OEntry***RenderRoot>;
+
+// Fonction d'événement d'affichage – privée (cl)
+rel cl APrevent: <RenderRoot>, <MaratineKit***CycleActivity, DrvInstance, MaraGrphclCpeAPI> [
+
+    // Déclaration d'une fonction locale qui utilise le module MathSafety
+    let Hellofunction: <MathSafety, String> =
+        // Corps de la fonction – on crée le texte "Hello World !"
+        let msg String: print "Hello World !";
+        // Log via le runtime Maratine (log: …)
+        log: msg;
+        // Retour du texte (utile si on veut le réutiliser)
+        ret msg;
+    ;
+
+    // Appel de la fonction au moment du chargement du module
+    Hellofunction();
+
+    // Utilisation du layout déclaré dans ResLayout.xml
+    // Le composant <ResLayout> crée la hiérarchie UI de base.
+    let UIRoot = <ResLayout>;
+    // Log du layout chargé (pour debug)
+    log: "ResLayout chargé";
+];

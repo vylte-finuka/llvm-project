@@ -1,0 +1,44 @@
+//___
+//___ LRenStyle.mara – Layout rendering style utilities
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Fournit des fonctions pour définir et gérer les styles de rendu de mise en page (couleurs, marges, espacements, etc.).
+
+//___
+
+#include <cstddef>
+
+//___
+//___ Set the background color for a layout element.
+//___
+rel op SetBackgroundColor: [element ptr, color u32] [
+    // Placeholder: actual implementation would interface with rendering system
+    log: "Setting background color of element to 0x" + color;
+    ret 0; // success
+];
+
+//___
+//___ Set the text color for a layout element.
+//___
+rel op SetTextColor: [element ptr, color u32] [
+    log: "Setting text color of element to 0x" + color;
+    ret 0;
+];
+
+//___
+//___ Set the margin (in pixels) for a layout element.
+//___
+rel op SetMargin: [element ptr, left i32, top i32, right i32, bottom i32] [
+    log: "Setting margin: left=" + left + ", top=" + top + ", right=" + right + ", bottom=" + bottom;
+    ret 0;
+];
+
+//___
+//___ Set the padding (in pixels) for a layout element.
+//___
+rel op SetPadding: [element ptr, left i32, top i32, right i32, bottom i32] [
+    log: "Setting padding: left=" + left + ", top=" + top + ", right=" + right + ", bottom=" + bottom;
+    ret 0;
+];

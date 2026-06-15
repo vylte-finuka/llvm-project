@@ -1,0 +1,43 @@
+//___
+//___ Font.mara – Font management utilities
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Fournit des fonctions pour charger, gérer et utiliser des polices de caractères.
+
+//___
+
+#include <cstddef>
+
+//___
+//___ Load a font from a file.
+//___
+rel op LoadFont: <path String> [
+    // Placeholder: actual implementation would interface with font system (e.g., FreeType)
+    let fontPtr ptr = nullptr; // To be implemented
+    if (fontPtr == nullptr) then [
+        log: "Failed to load font from: " + path;
+    ] else [
+        log: "Successfully loaded font from: " + path;
+    ];
+    ret fontPtr;
+];
+
+//___
+//___ Get the default system font.
+//___
+rel op GetDefaultFont: [] [
+    let fontPtr ptr = nullptr; // To be implemented
+    log: "Retrieved default system font.";
+    ret fontPtr;
+];
+
+//___
+//___ Get the height of the font in pixels.
+//___
+rel op GetFontHeight: [font ptr] [
+    let height i32 = 0; // To be implemented
+    log: "Font height: " + height + "px";
+    ret height;
+];

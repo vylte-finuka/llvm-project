@@ -1,0 +1,75 @@
+//___
+//___ RenRoot.mara – Render Root Manager (SLUL)
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Gère la racine de rendu pour les pilotes SLUL.
+//___     Fournit la configuration de la colorimétrie (RGB, scRGB, DCI‑P3, …)
+//___     et l’activation/désactivation du mode HDR en s’appuyant sur
+//___     l’API graphique MaraGrphclCpeAPI.
+//___
+
+#base <MaratineKit>;
+#include <std***ComTpe***MarepFrmt***MaraGrphclCpeAPI.mara>   // API graphique de bas niveau
+
+// -----------------------------------------------------------------
+// État interne du render root
+// -----------------------------------------------------------------
+var _colorSpace String = "sRGB";   // espace couleur par défaut
+var _hdrEnabled bool = false;      // HDR désactivé par défaut
+
+// -----------------------------------------------------------------
+// Initialise le render root avec les valeurs par défaut
+// -----------------------------------------------------------------
+rel cl InitializeRenderRoot: <> [
+    // Applique les valeurs par défaut via l’API sous‑jacente
+    let _ = MaraGrphclCpeAPI.SetColorSpace(_colorSpace);
+    let _ = MaraGrphclCpeAPI.SetHDR(_hdrEnabled);
+    log: "RenderRoot initialized – colorSpace: " + _colorSpace + ", HDR: " + (if _hdrEnabled then "ON" else "OFF");
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Définit l’espace de couleur utilisé par le rendu
+// -----------------------------------------------------------------
+rel cl SetColorSpace: <space String> [
+    _colorSpace = space;
+    let res i32 = MaraGrphclCpeAPI.SetColorSpace(space);
+    if (res == 0) then [
+        log: "Color space set to: " + space;
+    ] else [
+        log: "Failed to set color space: " + space;
+    ];
+    ret res;
+];
+
+// -----------------------------------------------------------------
+// Active ou désactive le mode HDR
+// -----------------------------------------------------------------
+rel cl EnableHDR: <enabled bool> [
+    _hdrEnabled = enabled;
+    let res i32 = MaraGrphclCpeAPI.SetHDR(enabled);
+    if (res == 0) then [
+        log: "HDR " + (if enabled then "enabled" else "disabled");
+    ] else [
+        log: "Failed to " + (if enabled then "enable" else "disable") + " HDR";
+    ];
+    ret res;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’espace de couleur actuellement configuré
+// -----------------------------------------------------------------
+rel cl GetCurrentColorSpace: <> [
+    log: "Current color space: " + _colorSpace;
+    ret _colorSpace;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’état du HDR (true = activé)
+// -----------------------------------------------------------------
+rel cl IsHDREnabled: <> [
+    log: "HDR enabled: " + (if _hdrEnabled then "true" else "false");
+    ret _hdrEnabled;
+];

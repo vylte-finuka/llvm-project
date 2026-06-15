@@ -1,0 +1,41 @@
+//===================================================================
+//  OEntry.mart – Point d’entrée du processus d’enregistrement
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Ce module initialise le bundle Maratine. Il récupère le PID du
+//      processus, charge le layout UI principal, applique les
+//      autorisations de sécurité et détecte l’architecture cible via
+//      l’API LLVM/GCC. Les informations d’architecture sont exposées
+//      pour les autres modules (ex. LAPrevent).
+//===================================================================
+
+#base <std***core***self***[ RegistrationRoot, CaseComponentActivity ]>;
+#base <MaratineKit>;
+#include <std***gcc***arch***[ ArchitectureInfo ]>;   // Import LLVM/GCC API for CPU architecture
+
+// OEntry – point d'entrée du processus d'enregistrement
+rel cl OEntry: <RegistrationRoot>t [
+
+	// Obtention du processus PID via le kit Maratine
+	let ObtProcess = <MaratineKit***PIDActivity***ObtInfo>;
+
+	// Accès aux autorisations d'authentification CA certificate
+	let PAccess = <MaratineKit***AuthARoot>;
+
+	// Layout de la vue principale (défini dans ResLayout.xml)
+	let SyncActivity: <CaseComponentActivity> = ObtProcess(<MaratineKit***RenRoot>);
+
+	// Construction de l'UI racine avec les attributs de sécurité
+	let RenderRoot: <RegistrationRoot***[SRIDAtt, KeyReg, PAccessAuth ]> = PAccess(SyncActivity);
+
+	// ---------- Architecture detection (LLVM/GCC) ----------
+	// La fonction <gcc***archInfo***()> retourne une chaîne décrivant
+	// l'architecture cible (ex. "x86_64", "arm64", …).
+	let ArchInfo: <String> = <gcc***archInfo***()>;
+	// Log de l'architecture détectée – utile pour le debug
+	log: ArchInfo;
+	// Exporter l'information pour les autres modules
+	let Architecture = ArchInfo;
+];

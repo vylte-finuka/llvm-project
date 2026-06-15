@@ -1,0 +1,22 @@
+// Vyft Ltd - Maratine Hello World Test
+
+std***maratine_sdk***MaratineRuntime;
+
+// Fonction publique principale
+rel op main[ 
+
+    let greeting: "Hello from Maratine!"
+    
+    if sendit [
+        log: greeting
+    ]
+    
+]
+
+// Fonction privée helper
+rel cl formatOutput[
+
+    let prefix: "[Output] "
+    let suffix: " [/Output]"
+    
+]

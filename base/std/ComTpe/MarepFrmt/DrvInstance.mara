@@ -1,0 +1,367 @@
+//===================================================================
+//  DrvInstance.mara – Driver Instance Manager (Lifecycle & Metadata)
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gère le cycle de vie complet d’une instance de pilote :
+//          chargement, initialisation, démarrage, arrêt, destruction.
+//      Fournit également des métadonnées standard (bus address,
+//      vendor/device ID, révision, état, etc.) similaires à celles
+//      affichées par le Gestionnaire de périphériques Windows.
+//      Utilise DrvManSpec pour le chargement/vérification, DrvAPIInterCon
+//      pour les appels matériels génériques, MathSafety pour les
+//      opérations d’indice sûres et PAccessAuth pour le logging d’accès.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***ComTpe***SlulFrmt***DrvManSpec>;
+#base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
+#base <std***ComTpe***SlulFrmt***MathSafety>;
+#base <std***core***self***RegistrationRoot***PAccessAuth>;
+#include <cstddef>
+#include <dlfcn.h>          // dlopen, dlsym, dlerror
+
+// -----------------------------------------------------------------
+// Configuration du gestionnaire d’instances
+// -----------------------------------------------------------------
+let MAX_DRIVER_INSTANCES i32 = 32;                     // nombre maximal d’instances simultanées
+
+// États possibles d’un pilote (enum simple)
+let STATE_UNLOADED i32 = 0;
+let STATE_LOADED   i32 = 1;   // dlopen réussi, pas encore initialisé
+let STATE_INIT     i32 = 2;   // InitDriver appelé avec succès
+let STATE_STARTED  i32 = 3;   // pilote démarré (ex. GPU prêt à dessiner)
+let STATE_STOPPED  i32 = 4;   // arrêté mais encore chargé
+let STATE_ERROR    i32 = 5;   // erreur lors du chargement/init
+
+// Tableaux internes (mutables) pour stocker les métadonnées de chaque instance
+var _driverHandles:   array = [nullptr; MAX_DRIVER_INSTANCES]; // pointeur dlopen
+var _driverNames:     array = [null;    MAX_DRIVER_INSTANCES]; // chemin du fichier .so/.drv
+var _busAddress:      array = [0;       MAX_DRIVER_INSTANCES]; // adresse bus (ex. PCI: segment:bus:dev.func)
+var _vendorId:        array = [0;       MAX_DRIVER_INSTANCES]; // ID constructeur (16‑bit)
+var _deviceId:        array = [0;       MAX_DRIVER_INSTANCES]; // ID périphérique (16‑bit)
+var _revisionId:      array = [0;       MAX_DRIVER_INSTANCES]; // révision du périphérique
+var _driverState:     array = [STATE_UNLOADED; MAX_DRIVER_INSTANCES]; // état actuel
+var _lastError:       array = [0;       MAX_DRIVER_INSTANCES]; // code d’erreur dernier appel
+var _refCount:        array = [0;       MAX_DRIVER_INSTANCES]; // nombre de références (pour partage)
+
+// -----------------------------------------------------------------
+// Fonction interne : recherche d’un slot libre.
+// Retourne l’index si trouvé, sinon -1.
+// -----------------------------------------------------------------
+rel cl _FindFreeSlot: [] [
+    let i i32 = 0;
+    loop i < MAX_DRIVER_INSTANCES [
+        if (_driverState[i] == STATE_UNLOADED) then [
+            ret i;
+        ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// -----------------------------------------------------------------
+// Fonction interne : validation d’un index d’instance.
+// Retourne true si l’index est dans les limites et pointe vers une
+// instance chargée (état != UNLOADED).
+// -----------------------------------------------------------------
+rel cl _IsValidInstance: [idx i32] [
+    if (idx < 0 || idx >= MAX_DRIVER_INSTANCES) then [
+        ret false;
+    ];
+    if (_driverState[idx] == STATE_UNLOADED) then [
+        ret false;
+    ];
+    ret true;
+];
+
+// -----------------------------------------------------------------
+// Crée une nouvelle instance de pilote à partir du chemin fourni.
+// Retourne l’ID d’instance (index) ou -1 en cas d’échec (pas de slot,
+// chargement échoué, etc.).
+// -----------------------------------------------------------------
+rel cl CreateDriverInstance: [driverPath String] [
+    // 1. Trouver un slot libre
+    let slot i32 = _FindFreeSlot();
+    if (slot == -1) then [
+        log: "CreateDriverInstance failed – no free slots (max " + MAX_DRIVER_INSTANCES + ").";
+        ret -1;
+    ];
+
+    // 2. Charger le binaire du pilote via DrvManSpec (inclut vérif. intégrité)
+    let handle ptr = <DrvManSpec***LoadDriver***>(driverPath);
+    if (handle == nullptr) then [
+        log: "CreateDriverInstance failed – LoadDriver returned nullptr for '" + driverPath + "'.";
+        _lastError[slot] = -1;   // code générique d’échec de chargement
+        ret -1;
+    ];
+
+    // 3. Initialiser le pilote (appelle InitDriver qui fait GpuInit, etc.)
+    let initRes i32 = <DrvManSpec***InitDriver***>(handle);
+    if (initRes != 0) then [
+        log: "CreateDriverInstance failed – InitDriver returned " + initRes + " for '" + driverPath + "'.";
+        // Nettoyage : décharger le handle car l’initialisation a échoué
+        let _ = dlclose(handle);
+        _driverHandles[slot] = nullptr;
+        _lastError[slot] = initRes;
+        ret -1;
+    ];
+
+    // 4. Récupérer les métadonnées depuis le pilote chargé
+    //    On suppose que le pilote exporte les fonctions suivantes :
+    //        uint64_t driver_get_bus_address(void);
+    //        uint16_t driver_get_vendor_id(void);
+    //        uint16_t driver_get_device_id(void);
+    //        uint8_t  driver_get_revision_id(void);
+    //    Si une fonction n’est pas trouvée, on laisse la valeur à 0 et on logge un avertissement.
+
+    // ---- Bus address ----
+    let busAddrFunc ptr = dlsym(handle, "driver_get_bus_address");
+    if (busAddrFunc == nullptr) then [
+        log: "CreateDriverInstance – driver_get_bus_address not found in '" + driverPath + "'.";
+        _busAddress[slot] = 0;
+    ] else [
+        let busAddr u64 = (<cstd***uint64_t (*)()***>busAddrFunc)();
+        _busAddress[slot] = busAddr;
+    ];
+
+    // ---- Vendor ID ----
+    let vendFunc ptr = dlsym(handle, "driver_get_vendor_id");
+    if (vendFunc == nullptr) then [
+        log: "CreateDriverInstance – driver_get_vendor_id not found in '" + driverPath + "'.";
+        _vendorId[slot] = 0;
+    ] else [
+        let vend u16 = (<cstd***uint16_t (*)()***>vendFunc)();
+        _vendorId[slot] = vend;
+    ];
+
+    // ---- Device ID ----
+    let devFunc ptr = dlsym(handle, "driver_get_device_id");
+    if (devFunc == nullptr) then [
+        log: "CreateDriverInstance – driver_get_device_id not found in '" + driverPath + "'.";
+        _deviceId[slot] = 0;
+    ] else [
+        let dev u16 = (<cstd***uint16_t (*)()***>devFunc)();
+        _deviceId[slot] = dev;
+    ];
+
+    // ---- Revision ID ----
+    let revFunc ptr = dlsym(handle, "driver_get_revision_id");
+    if (revFunc == nullptr) then [
+        log: "CreateDriverInstance – driver_get_revision_id not found in '" + driverPath + "'.";
+        _revisionId[slot] = 0;
+    ] else [
+        let rev u8 = (<cstd***uint8_t (*)()***>revFunc)();
+        _revisionId[slot] = rev;
+    ];
+
+    // 5. Remplir les autres champs
+    _driverHandles[slot]   = handle;
+    _driverNames[slot]     = driverPath;
+    _driverState[slot]     = STATE_INIT;   // chargé + initialisé, pas encore démarré
+    _lastError[slot]       = 0;
+    _refCount[slot]        = 1;
+
+    // 6. Log d’accès via PAccessAuth
+    let granted bool = <PAccessAuth***LogAccess***>("DriverInstance", driverPath, true);
+    if (granted == false) then [
+        log: "CreateDriverInstance – access denied by PAccessAuth for '" + driverPath + "'.";
+        // On ne détruit pas l’instance ici car le chargement a déjà réussi,
+        // mais on marque l’erreur d’accès.
+        _lastError[slot] = -2;
+    ];
+
+    log: "CreateDriverInstance succeeded – instance ID " + slot + " for '" + driverPath + "'.";
+    ret slot;
+];
+
+// -----------------------------------------------------------------
+// Démarre une instance de pilote (passe de INIT à STARTED).
+// Retourne 0 en cas de succès, -1 sinon.
+// -----------------------------------------------------------------
+rel cl StartDriverInstance: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "StartDriverInstance failed – invalid instance ID " + instId;
+        ret -1;
+    ];
+    if (_driverState[instId] != STATE_INIT) then [
+        log: "StartDriverInstance failed – instance " + instId + " not in INIT state (current " + _driverState[instId] + ").";
+        ret -1;
+    ];
+
+    // Dans une implémentation réelle on appellerait une fonction du pilote
+    // pour passer à l’état actif (ex. GpuStart, CpuEnable, etc.).
+    // Ici on utilise un appel générique via DrvAPIInterCon si enregistré,
+    // sinon on considère que le démarrage est logique.
+    let startRes i32 = 0; // placeholder – à remplacer par un appel réel si disponible
+    // Exemple : let startRes i32 = <DrvAPIInterCon***GpuStart***>();
+    if (startRes != 0) then [
+        log: "StartDriverInstance failed – start routine returned " + startRes + " for instance " + instId;
+        _driverState[instId] = STATE_ERROR;
+        _lastError[instId] = startRes;
+        ret -1;
+    ];
+
+    _driverState[instId] = STATE_STARTED;
+    log: "StartDriverInstance succeeded – instance " + instId + " now STARTED.";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Arrête une instance de pilote (passe de STARTED à STOPPED).
+// Retourne 0 en cas de succès, -1 sinon.
+// -----------------------------------------------------------------
+rel cl StopDriverInstance: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "StopDriverInstance failed – invalid instance ID " + instId;
+        ret -1;
+    ];
+    if (_driverState[instId] != STATE_STARTED) then [
+        log: "StopDriverInstance failed – instance " + instId + " not in STARTED state (current " + _driverState[instId] + ").";
+        ret -1;
+    ];
+
+    // Arrêt logique du pilote (ex. GpuStop, CpuDisable, etc.)
+    let stopRes i32 = 0; // placeholder
+    // Exemple : let stopRes i32 = <DrvAPIInterCon***GpuStop***>();
+    if (stopRes != 0) then [
+        log: "StopDriverInstance failed – stop routine returned " + stopRes + " for instance " + instId;
+        _driverState[instId] = STATE_ERROR;
+        _lastError[instId] = stopRes;
+        ret -1;
+    ];
+
+    _driverState[instId] = STATE_STOPPED;
+    log: "StopDriverInstance succeeded – instance " + instId + " now STOPPED.";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Détruit une instance de pilote : décharge le binaire et nettoie les métadonnées.
+// Retourne 0 en cas de succès, -1 sinon.
+// -----------------------------------------------------------------
+rel cl DestroyDriverInstance: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "DestroyDriverInstance failed – invalid instance ID " + instId;
+        ret -1;
+    ];
+    // On ne permet la destruction que si le pilote est arrêté ou non initialisé
+    if (_driverState[instId] == STATE_STARTED) then [
+        log: "DestroyDriverInstance failed – instance " + instId + " is still STARTED. Stop it first.";
+        ret -1;
+    ];
+
+    // Décrémenter le compteur de références (dans ce gestionnaire simple on
+    // ne supporte pas le partage, donc on détruit directement)
+    _refCount[instId] = _refCount[instId] - 1;
+    if (_refCount[instId] > 0) then [
+        log: "DestroyDriverInstance – ref count still " + _refCount[instId] + ", keeping instance alive.";
+        ret 0;
+    ];
+
+    // Décharger le binaire
+    let handle ptr = _driverHandles[instId];
+    if (handle != nullptr) then [
+        let closeRes i32 = dlclose(handle);
+        if (closeRes != 0) then [
+            log: "DestroyDriverInstance – dlclose returned " + closeRes + " for instance " + instId;
+            // On continue le nettoyage malgré l’erreur de fermeture.
+        ];
+    ];
+
+    // Réinitialiser les entrées
+    _driverHandles[instId] = nullptr;
+    _driverNames[instId]   = null;
+    _busAddress[instId]    = 0;
+    _vendorId[instId]      = 0;
+    _deviceId[instId]      = 0;
+    _revisionId[instId]    = 0;
+    _driverState[instId]   = STATE_UNLOADED;
+    _lastError[instId]     = 0;
+    _refCount[instId]      = 0;
+
+    log: "DestroyDriverInstance succeeded – instance " + instId + " cleaned up.";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’état actuel d’une instance (enum décrit en haut).
+// -----------------------------------------------------------------
+rel cl GetDriverState: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "GetDriverState failed – invalid instance ID " + instId;
+        ret STATE_UNLOADED; // ou une valeur d’erreur spécifique
+    ];
+    ret _driverState[instId];
+];
+
+// -----------------------------------------------------------------
+// Retourne une chaîne lisible contenant les métadonnées de l’instance.
+// Format simplifié : "ID:<id> PATH:<path> BUS:0x<bus> VEN:0x<ven> DEV:0x<dev> REV:0x<rev> STATE:<state> ERR:<err>"
+// -----------------------------------------------------------------
+rel cl GetDriverInfo: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "GetDriverInfo failed – invalid instance ID " + instId;
+        ret "INVALID_INSTANCE";
+    ];
+    let info String = "ID:" + instId +
+                      " PATH:" + _driverNames[instId] +
+                      " BUS:0x" + _busAddress[instId] +
+                      " VEN:0x" + _vendorId[instId] +
+                      " DEV:0x" + _deviceId[instId] +
+                      " REV:0x" + _revisionId[instId] +
+                      " STATE:" + _driverState[instId] +
+                      " ERR:" + _lastError[instId];
+    log: "GetDriverInfo for instance " + instId + ": " + info;
+    ret info;
+];
+
+// -----------------------------------------------------------------
+// Fonction utilitaire : augmente le compteur de références d’une instance
+// (utile lorsqu’un même pilote est partagé par plusieurs composants).
+// Retourne le nouveau compteur ou -1 si l’instance est invalide.
+// -----------------------------------------------------------------
+rel cl AddRefDriverInstance: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "AddRefDriverInstance failed – invalid instance ID " + instId;
+        ret -1;
+    ];
+    let newCount i32 = _refCount[instId] + 1;
+    _refCount[instId] = newCount;
+    log: "AddRefDriverInstance – instance " + instId + " ref count now " + newCount;
+    ret newCount;
+];
+
+// -----------------------------------------------------------------
+// Fonction utilitaire : diminue le compteur de références et détruit
+// l’instance si le compteur atteint zéro.
+// Retourne 0 si l’instance a été détruite, 1 si elle reste vivante,
+// -1 en cas d’erreur.
+// -----------------------------------------------------------------
+rel cl ReleaseDriverInstance: [instId i32] [
+    if (!_IsValidInstance(instId)) then [
+        log: "ReleaseDriverInstance failed – invalid instance ID " + instId;
+        ret -1;
+    ];
+    if (_refCount[instId] == 0) then [
+        log: "ReleaseDriverInstance – instance " + instId + " already has zero refs.";
+        ret -1;
+    ];
+    let newCount i32 = _refCount[instId] - 1;
+    _refCount[instId] = newCount;
+    if (newCount == 0) then [
+        // Détruire réellement l’instance
+        let destroyRes i32 = <DriverInstance***DestroyDriverInstance***>(instId);
+        if (destroyRes == 0) then [
+            log: "ReleaseDriverInstance – instance " + instId + " destroyed (ref count reached 0).";
+            ret 0;   // indiquer que l’instance a été détruite
+        ] else [
+            log: "ReleaseDriverInstance – failed to destroy instance " + instId + " (error " + destroyRes + ").";
+            return -1;
+        ];
+    ] else [
+        log: "ReleaseDriverInstance – instance " + instId + " ref count now " + newCount;
+        ret 1;   // indiquer que l’instance reste vivante
+    ];
+];

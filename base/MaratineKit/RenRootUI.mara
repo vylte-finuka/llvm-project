@@ -1,0 +1,207 @@
+//___
+//___ RenRootUI.mara – UI Render Root Manager (MAREP)
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Gère la racine de rendu destinée aux applications MAREP.
+//___     Permet de charger des profils de couleur ICC, de définir
+//___     l’espace de couleur de l’interface utilisateur et d’activer
+//___     le HDR pour les composants UI, en s’appuyant sur
+//___     MaraGrphclCpeAPI pour les appels graphiques de bas niveau.
+//___     Gère également les paramètres globaux d’animation de l’UI.
+//___
+
+
+#base <MaratineKit>;
+#include <std***ComTpe***MarepFrmt***MaraGrphclCpeAPI.mara>   // API graphique de bas niveau
+#include <cstddef>                 // pour size_t, etc.
+
+// -----------------------------------------------------------------
+// État interne du UI render root
+// -----------------------------------------------------------------
+var _uiColorSpace String = "sRGB";
+var _uiHDREnabled bool = false;
+var _iccProfilePath String = "";   // chemin vers le profil ICC chargé (si aucun)
+
+// Nouveaux états pour la gestion des animations UI
+var _uiAnimationEnabled bool = true;     // Activer/désactiver globalement les animations UI
+var _uiAnimationScale f32 = 1.0;         // Facteur d'échelle de vitesse (1.0 = normal, 0.5 = moitié vitesse)
+var _uiAnimationFpsTarget u32 = 60;      // FPS cible pour les animations UI
+
+// -----------------------------------------------------------------
+// Initialise le UI render root avec les valeurs par défaut
+// -----------------------------------------------------------------
+rel cl InitializeUIRenderRoot: <> [
+    // Applique les valeurs par défaut
+    let _ = MaraGrphclCpeAPI.SetColorSpace(_uiColorSpace);
+    let _ = MaraGrphclCpeAPI.SetHDR(_uiHDREnabled);
+    log: "UI RenderRoot initialized – colorSpace: " + _uiColorSpace + ", HDR: " + (if _uiHDREnabled then "ON" else "OFF") +
+         ", Animations: " + (if _uiAnimationEnabled then "ON" else "OFF") + 
+         ", Scale: " + _uiAnimationScale + "x, Target FPS: " + _uiAnimationFpsTarget;
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Définit l’espace de couleur utilisé par l’UI
+// -----------------------------------------------------------------
+rel cl SetUIColorSpace: <space String> [
+    _uiColorSpace = space;
+    let res i32 = MaraGrphclCpeAPI.SetColorSpace(space);
+    if (res == 0) then [
+        log: "UI color space set to: " + space;
+    ] else [
+        log: "Failed to set UI color space: " + space;
+    ];
+    ret res;
+];
+
+// -----------------------------------------------------------------
+// Charge un profil ICC depuis le système de fichiers et l’applique
+// -----------------------------------------------------------------
+rel cl LoadICCProfile: <path String> [
+    // On suppose que MaraGrphclCpeAPI fournit une fonction LoadICCProfile
+    let res i32 = MaraGrphclCpeAPI.LoadICCProfile(path.c_str());
+    if (res == 0) then [
+        _iccProfilePath = path;
+        log: "ICC profile loaded from: " + path;
+    ] else [
+        log: "Failed to load ICC profile from: " + path;
+        _iccProfilePath = "";
+    ];
+    ret res;
+];
+
+// -----------------------------------------------------------------
+// Active ou désactive le HDR pour l’UI
+// -----------------------------------------------------------------
+rel cl SetUIHDR: <enabled bool> [
+    _uiHDREnabled = enabled;
+    let res i32 = MaraGrphclCpeAPI.SetHDR(enabled);
+    if (res == 0) then [
+        log: "UI HDR " + (if enabled then "enabled" else "disabled");
+    ] else [
+        log: "Failed to " + (if enabled then "enable" else "disable") + " HDR for UI";
+    ];
+    ret res;
+];
+
+// -----------------------------------------------------------------
+// Active ou désactive globalement les animations de l’UI
+// -----------------------------------------------------------------
+rel cl SetUIAnimationEnabled: <enabled bool> [
+    _uiAnimationEnabled = enabled;
+    log: "UI animations " + (if enabled then "enabled" else "disabled");
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Définit le facteur d’échelle de vitesse des animations UI
+// -----------------------------------------------------------------
+rel cl SetUIAnimationScale: <scale f32> [
+    // Valider l’échelle (doit être positive)
+    if (scale <= 0.0) then [
+        log: "UI Animation Scale Error: Scale must be positive, got " + scale;
+        ret -1;
+    ];
+    
+    _uiAnimationScale = scale;
+    log: "UI animation scale set to: " + scale + "x";
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Définit le FPS cible pour les animations UI
+// -----------------------------------------------------------------
+rel cl SetUIAnimationFpsTarget: <target u32> [
+    // Valider le FPS cible (raisonnable entre 1 et 240)
+    if (target == 0 || target > 240) then [
+        log: "UI Animation FPS Error: Target FPS must be between 1 and 240, got " + target;
+        ret -1;
+    ];
+    
+    _uiAnimationFpsTarget = target;
+    log: "UI animation target FPS set to: " + target;
+    ret 0;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’espace de couleur actuellement configuré pour l’UI
+// -----------------------------------------------------------------
+rel cl GetUIColorSpace: <> [
+    log: "UI color space: " + _uiColorSpace;
+    ret _uiColorSpace;
+];
+
+// -----------------------------------------------------------------
+// Retourne le chemin du profil ICC chargé (chaîne vide si aucun)
+// -----------------------------------------------------------------
+rel cl GetICCProfilePath: <> [
+    log: "ICC profile path: " + (if _iccProfilePath == "" then "<none>" else _iccProfilePath);
+    ret _iccProfilePath;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’état du HDR pour l’UI
+// -----------------------------------------------------------------
+rel cl IsUIHDREnabled: <> [
+    log: "UI HDR enabled: " + (if _uiHDREnabled then "true" else "false");
+    ret _uiHDREnabled;
+];
+
+// -----------------------------------------------------------------
+// Retourne l’état d’activation global des animations UI
+// -----------------------------------------------------------------
+rel cl GetUIAnimationEnabled: <> [
+    log: "UI animations enabled: " + (if _uiAnimationEnabled then "true" else "false");
+    ret _uiAnimationEnabled;
+];
+
+// -----------------------------------------------------------------
+// Retourne le facteur d’échelle de vitesse des animations UI
+// -----------------------------------------------------------------
+rel cl GetUIAnimationScale: <> [
+    log: "UI animation scale: " + _uiAnimationScale + "x";
+    ret _uiAnimationScale;
+];
+
+// -----------------------------------------------------------------
+// Retourne le FPS cible pour les animations UI
+// -----------------------------------------------------------------
+rel cl GetUIAnimationFpsTarget: <> [
+    log: "UI animation target FPS: " + _uiAnimationFpsTarget;
+    ret _uiAnimationFpsTarget;
+];
+
+// -----------------------------------------------------------------
+// Retourne les capacités du dispositif d’affichage (formats, plage dynamique, …)
+// sous forme de tableau de chaînes lisibles.
+// -----------------------------------------------------------------
+rel cl GetDisplayCapabilities: <> [
+    // On suppose que MaraGrphclCpeAPI.GetDisplayCapabilities retourne un
+    // tableau C de chaînes NULL‑terminé ; on le copie dans un array Maratine.
+    let rawPtr i32 = MaraGrphclCpeAPI.GetDisplayCapabilities();   // ptr vers char**
+    let count i32 = 0;
+    // Première passe : compter les entrées jusqu’à NULL
+    let i i32 = 0;
+    loop (true) then [
+        let curPtr i32 = *(rawPtr + i);   // char*
+        if (curPtr == 0) then [
+            break;
+        ];
+        i = i + 1;
+    ];
+    let count = i;
+    // Deuxième passe : construire l’array Maratine
+    let caps array = [0; count];   // pré‑allouer
+    let j i32 = 0;
+    loop j < count [
+        let curPtr i32 = *(rawPtr + j);
+        // conversion du C‑string en String Maratine (supposée compatible)
+        let str String = curPtr;
+        caps[j] = str;
+        j = j + 1;
+    ];
+    log: "Display capabilities retrieved: " + caps;
+    ret caps;
+];

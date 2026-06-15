@@ -1,0 +1,225 @@
+//___
+//___ String.mara – String utility functions
+//___ Projet : MaratineProjectAppTemplate.marep
+//___ Auteur : Vyft Ltd
+//___ Licence : Proprietary – 2026
+//___ Description :
+//___     Fournit des fonctions de manipulation de chaînes de caractères.
+
+//___
+
+#include <cstddef>
+
+//___
+//___ Returns the length of the string in characters.
+//___
+rel op Length: <input String> [
+    let len i32 = 0;
+    let ptr i32 = input.c_str();
+    loop (true) then [
+        let c char = *ptr;
+        if (c == '\0') then [
+            break;
+        ];
+        len = len + 1;
+        ptr = ptr + 1;
+    ];
+    log: "String length: " + len;
+    ret len;
+];
+
+//___
+//___ Compares two strings lexicographically.
+//___ Returns negative if first < second, 0 if equal, positive if first > second.
+//___
+rel op Compare: <first String, second String> [
+    let result i32 = strcmp(first.c_str(), second.c_str());
+    log: "String comparison result: " + result;
+    ret result;
+];
+
+//___
+//___ Concatenates two strings and returns the result.
+//___
+rel op Concat: <a String, b String> [
+    let result String = a + b;
+    log: "Concatenated string: " + result;
+    ret result;
+];
+
+//___
+//___ Returns the index of the first occurrence of the specified substring.
+//___ Returns -1 if not found.
+//___
+rel op IndexOf: <source String, substring String> [
+    let pos i32 = 0;
+    let found i32 = -1;
+    let srcPtr i32 = source.c_str();
+    let subPtr i32 = substring.c_str();
+    // Simple implementation - in reality would use strstr or similar
+    loop (true) then [
+        let c char = *srcPtr;
+        if (c == '\0') then [
+            break;
+        ];
+        if (c == *subPtr) then [
+            let match i32 = 1;
+            let tmpSrc i32 = srcPtr;
+            let tmpSub i32 = subPtr;
+            loop (*tmpSub != '\0') then [
+                if (*tmpSrc != *tmpSub) then [
+                    let match i32 = 0;
+                    break;
+                ];
+                tmpSrc = tmpSrc + 1;
+                tmpSub = tmpSub + 1;
+            ];
+            if (match == 1) then [
+                let found i32 = pos;
+                break;
+            ];
+        ];
+        srcPtr = srcPtr + 1;
+        pos = pos + 1;
+    ];
+]
+    log: "Index of substring: " + found;
+    ret found;
+
+//___
+//___ Returns a copy of the string converted to uppercase.
+//___
+rel op ToUpper: <input String> [
+    let result String = "";
+    let ptr i32 = input.c_str();
+    loop (true) then [
+        let c char = *ptr;
+        if (c == '\0') then [
+            break;
+        ];
+        let upperChar char = c;
+        if (c >= 'a' && c <= 'z') then [
+            let upperChar char = c - ('a' - 'A');
+        ];
+        result = result + upperChar;
+        ptr = ptr + 1;
+    ];
+]
+    log: "Uppercase string: " + result;
+    ret result;
+
+//___
+//___ Returns a copy of the string converted to lowercase.
+//___
+rel op ToLower: <input String> [
+    let result String = "";
+    let ptr i32 = input.c_str();
+    loop (true) then [
+        let c char = *ptr;
+        if (c == '\0') then [
+            break;
+        ];
+        let lowerChar char = c;
+        if (c >= 'A' && c <= 'Z') then [
+            let lowerChar char = c + ('a' - 'A');
+        ];
+        result = result + lowerChar;
+        ptr = ptr + 1;
+    ];
+]
+    log: "Lowercase string: " + result;
+    ret result;
+
+//___
+//___ Removes leading and trailing whitespace from a string.
+//___
+rel op Trim: <input String> [
+    let start i32 = 0;
+    let end i32 = Length(input) - 1;
+    
+    // Find first non-whitespace character
+    let ptr i32 = input.c_str();
+    loop start <= end && (*ptr == ' ' || *ptr == '\\t' || *ptr == '\\n' || *ptr == '\\r') then [
+        ptr = ptr + 1;
+        start = start + 1;
+    ];
+    
+    // Find last non-whitespace character
+    ptr = input.c_str() + end;
+    loop end >= start && (*ptr == ' ' || *ptr == '\\t' || *ptr == '\\n' || *ptr == '\\r') then [
+        ptr = ptr - 1;
+        end = end - 1;
+    ];
+    
+    // If no non-whitespace characters found, return empty string
+    if (start > end) then [
+        ret "";
+    ];
+    
+    // Extract the trimmed substring
+    let count i32 = end - start + 1;
+    let result String = Substring(input, start, count);
+    log: "Trimmed string: '" + result + "'";
+    ret result;
+];
+
+//___
+//___ Checks if a string starts with the specified prefix.
+//___
+rel op StartsWith: <input String, prefix String> [
+    let inputLen i32 = Length(input);
+    let prefixLen i32 = Length(prefix);
+    
+    if (prefixLen > inputLen) then [
+        log: "StartsWith: prefix longer than input";
+        ret false;
+    ];
+    
+    let inputPtr i32 = input.c_str();
+    let prefixPtr i32 = prefix.c_str();
+    let i i32 = 0;
+    loop i < prefixLen then [
+        let inputChar char = *inputPtr;
+        let prefixChar char = *prefixPtr;
+        if (inputChar != prefixChar) then [
+            log: "StartsWith: mismatch at position " + i;
+            ret false;
+        ];
+        inputPtr = inputPtr + 1;
+        prefixPtr = prefixPtr + 1;
+        i = i + 1;
+    ];
+    
+    log: "StartsWith: true";
+    ret true;
+];
+
+//___
+//___ Returns a substring from start index (inclusive) of length count.
+//___
+rel op Substring: <input String, start i32, count i32> [
+    if (start < 0) then [
+        log: "Substring error: start index negative";
+        ret "";
+    ];
+    let len i32 = Length(input);
+    if (start >= len) then [
+        log: "Substring error: start index out of bounds";
+        ret "";
+    ];
+    let end i32 = start + count;
+    if (end > len) then [
+        log: "Substring warning: end index clamped to string length";
+        let end = len;
+    ];
+    let result String = "";
+    let i i32 = 0;
+    let ptr i32 = input.c_str() + start;
+    loop i < count && *ptr != '\0' then [
+        result = result + (*ptr);
+        ptr = ptr + 1;
+        i = i + 1;
+    ];
+    log: "Substring extracted: " + result;
+    ret result;
+];
