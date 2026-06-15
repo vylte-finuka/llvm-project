@@ -15,21 +15,9 @@
 
 namespace llvm {
 namespace AMDGPU {
-void HWEventSet::print(raw_ostream &OS) const {
-  ListSeparator LS(", ");
-  for (HWEvent Event : hw_events()) {
-    if (contains(Event))
-      OS << LS << toString(Event);
-  }
-}
 
-void HWEventSet::dump() const {
-  print(dbgs());
-  dbgs() << "\n";
-}
-
-static HWEventSet getExpertSchedulingEventType(const MachineInstr &Inst,
-                                               const SIInstrInfo &TII) {
+static HWEvent getExpertSchedulingEventType(const MachineInstr &Inst,
+                                            const SIInstrInfo &TII) {
   if (TII.isVALU(Inst)) {
     // Core/Side-, DP-, XDL- and TRANS-MACC VALU instructions complete
     // out-of-order with respect to each other, so each of these classes
@@ -61,7 +49,7 @@ static HWEventSet getExpertSchedulingEventType(const MachineInstr &Inst,
     return HWEvent::VGPR_VMEM_READ;
 
   // Otherwise, no hazard.
-  return {};
+  return HWEvent::NONE;
 }
 
 static HWEvent getVmemHWEvent(const MachineInstr &Inst, const GCNSubtarget &ST,
@@ -110,13 +98,13 @@ static HWEvent getVmemHWEvent(const MachineInstr &Inst, const GCNSubtarget &ST,
   return HWEvent::VMEM_ACCESS;
 }
 
-static HWEventSet getEventsForImpl(const MachineInstr &Inst,
-                                   const GCNSubtarget &ST,
-                                   const SIInstrInfo &TII) {
+static HWEvent getEventsForImpl(const MachineInstr &Inst,
+                                const GCNSubtarget &ST,
+                                const SIInstrInfo &TII) {
   if (TII.isDS(Inst) && TII.usesLGKM_CNT(Inst)) {
     if (TII.isAlwaysGDS(Inst.getOpcode()) ||
         TII.hasModifiersSet(Inst, AMDGPU::OpName::gds))
-      return {HWEvent::GDS_ACCESS, HWEvent::GDS_GPR_LOCK};
+      return HWEvent::GDS_ACCESS | HWEvent::GDS_GPR_LOCK;
 
     return HWEvent::LDS_ACCESS;
   }
@@ -126,16 +114,16 @@ static HWEventSet getEventsForImpl(const MachineInstr &Inst,
       return getVmemHWEvent(Inst, ST, TII);
 
     assert(Inst.mayLoadOrStore());
-    HWEventSet S;
+    HWEvent E = HWEvent::NONE;
     if (TII.mayAccessVMEMThroughFlat(Inst)) {
       if (ST.hasWaitXcnt())
-        S.insert(HWEvent::VMEM_GROUP);
-      S.insert(getVmemHWEvent(Inst, ST, TII));
+        E |= HWEvent::VMEM_GROUP;
+      E |= getVmemHWEvent(Inst, ST, TII);
     }
 
     if (TII.mayAccessLDSThroughFlat(Inst))
-      S.insert(HWEvent::LDS_ACCESS);
-    return S;
+      E |= HWEvent::LDS_ACCESS;
+    return E;
   }
 
   if (SIInstrInfo::isVMEM(Inst) &&
@@ -144,19 +132,19 @@ static HWEventSet getEventsForImpl(const MachineInstr &Inst,
     // BUFFER_WBL2 is included here because unlike invalidates, has to be
     // followed "S_WAITCNT vmcnt(0)" is needed after to ensure the writeback has
     // completed.
-    HWEventSet S = {getVmemHWEvent(Inst, ST, TII)};
+    HWEvent E = getVmemHWEvent(Inst, ST, TII);
     if (ST.hasWaitXcnt())
-      S.insert(HWEvent::VMEM_GROUP);
+      E |= HWEvent::VMEM_GROUP;
     if (ST.vmemWriteNeedsExpWaitcnt() &&
         (Inst.mayStore() || SIInstrInfo::isAtomicRet(Inst)))
-      S.insert(HWEvent::VMW_GPR_LOCK);
+      E |= HWEvent::VMW_GPR_LOCK;
 
-    return S;
+    return E;
   }
 
   if (TII.isSMRD(Inst)) {
     if (ST.hasWaitXcnt())
-      return {HWEvent::SMEM_GROUP, HWEvent::SMEM_ACCESS};
+      return HWEvent::SMEM_GROUP | HWEvent::SMEM_ACCESS;
     return HWEvent::SMEM_ACCESS;
   }
 
@@ -190,11 +178,11 @@ static HWEventSet getEventsForImpl(const MachineInstr &Inst,
     return HWEvent::SMEM_ACCESS;
   }
 
-  return {};
+  return HWEvent::NONE;
 }
 
-HWEventSet getEventsFor(const MachineInstr &Inst, const GCNSubtarget &ST,
-                        bool IsExpertMode) {
+HWEvent getEventsFor(const MachineInstr &Inst, const GCNSubtarget &ST,
+                     bool IsExpertMode) {
   const SIInstrInfo &TII = *ST.getInstrInfo();
 
   if (IsExpertMode)
@@ -203,4 +191,14 @@ HWEventSet getEventsFor(const MachineInstr &Inst, const GCNSubtarget &ST,
   return getEventsForImpl(Inst, ST, TII);
 }
 } // namespace AMDGPU
+
+raw_ostream &operator<<(raw_ostream &OS, AMDGPU::HWEvent Events) {
+  ListSeparator LS(" | ");
+#define AMDGPU_HW_EVENT(E, V)                                                  \
+  if (Events & AMDGPU::HWEvent::E)                                             \
+    OS << LS << #E << " ";
+#include "AMDGPUHWEvents.def"
+  return OS;
+}
+
 } // namespace llvm
