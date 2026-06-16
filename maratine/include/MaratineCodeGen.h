@@ -1,5 +1,8 @@
-// Vyft Ltd - Maratine Code Generator
-// Générateur LLVM IR pour le langage Maratine
+// Vyft Ltd — Mara/Maratine Code Generator — Proprietary — 2026
+//
+// Generates LLVM IR from the Mara AST.
+// Target: ARM64 (Slura OS / Lunée kernel).
+// Mara type system: string i32 i64 u64 bool ptr array — no f32/f64/double.
 
 #ifndef LLVM_MARATINE_CODEGEN_H
 #define LLVM_MARATINE_CODEGEN_H
@@ -16,51 +19,51 @@ namespace llvm {
 namespace maratine {
 
 class CodeGenerator {
-private:
-  std::unique_ptr<LLVMContext> Context;
-  std::unique_ptr<llvm::Module> Module;
-  std::unique_ptr<IRBuilder<>> Builder;
-  
-  // Symboles locaux
-  DenseMap<StringRef, llvm::Value *> NamedValues;
-  
-  // Types du runtime Maratine
-  llvm::FunctionType *LogFuncType;
-  llvm::Function *LogFunc;
+public:
+  explicit CodeGenerator(StringRef ModuleName);
 
-  // Génération d'expressions
+  Expected<std::unique_ptr<llvm::Module>> codegenModule(Module *M);
+  Expected<llvm::Function *>              codegenFunction(FunctionDecl *F);
+  void optimize();
+  std::unique_ptr<llvm::Module> getModule() { return std::move(Mod); }
+
+private:
+  std::unique_ptr<LLVMContext>   Ctx;
+  std::unique_ptr<llvm::Module>  Mod;
+  std::unique_ptr<IRBuilder<>>   Builder;
+
+  // Local symbol table: variable name → alloca
+  DenseMap<StringRef, llvm::Value *> Syms;
+
+  // Runtime
+  llvm::Function *LogFunc = nullptr;
+
+  void initRuntime();
+
+  // Type mapping
+  llvm::Type *maraTypeToLLVM(MaraTypeKind K);
+  GlobalValue::LinkageTypes visToLinkage(Visibility V);
+
+  // Codegen helpers
   Expected<llvm::Value *> codegenExpr(Expr *E);
-  Expected<llvm::Value *> codegenStringLiteral(StringLiteral *E);
+  Expected<llvm::Value *> codegenStringLit(StringLiteral *E);
+  Expected<llvm::Value *> codegenIntLit(IntLiteral *E);
+  Expected<llvm::Value *> codegenBoolLit(BoolLiteral *E);
+  Expected<llvm::Value *> codegenNullLit(NullLiteral *E);
   Expected<llvm::Value *> codegenVarRef(VarRef *E);
   Expected<llvm::Value *> codegenCallExpr(CallExpr *E);
+  Expected<llvm::Value *> codegenFFICall(FFICallExpr *E);
+  Expected<llvm::Value *> codegenBinaryExpr(BinaryExpr *E);
+  Expected<llvm::Value *> codegenArrayLiteral(ArrayLiteral *E);
 
-  // Génération de statements
-  Expected<void> codegenLogStmt(LogStmt *S);
-  Expected<void> codegenIfStmt(IfStmt *S);
-  Expected<void> codegenVarDecl(VarDecl *D);
-
-  // Génération de composants UI
-  Expected<llvm::Value *> codegenUIComponent(UIComponent *UI);
-
-  // Utilitaires
-  void initializeRuntimeLibrary();
-  llvm::FunctionType *getLLVMType(StringRef MartType);
-  GlobalValue::LinkageTypes getVisibilityLinkage(Visibility V);
-
-public:
-  CodeGenerator(StringRef ModuleName);
-
-  /// Génère LLVM IR depuis l'AST
-  Expected<std::unique_ptr<llvm::Module>> codegenModule(Module *M);
-
-  /// Génère code pour une fonction
-  Expected<llvm::Function *> codegenFunction(FunctionDecl *F);
-
-  /// Optimise le code généré
-  void optimize();
-
-  /// Produit le résultat
-  std::unique_ptr<llvm::Module> getModule() { return std::move(Module); }
+  Error codegenStmt(ASTNode *S);
+  Error codegenBlock(BlockStmt *B);
+  Error codegenVarDecl(VarDecl *D);
+  Error codegenIf(IfStmt *S);
+  Error codegenLoop(LoopStmt *S);
+  Error codegenLog(LogStmt *S);
+  Error codegenRet(RetStmt *S);
+  Error codegenAssign(AssignStmt *S);
 };
 
 } // namespace maratine

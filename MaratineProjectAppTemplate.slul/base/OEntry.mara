@@ -1,41 +1,35 @@
 //===================================================================
-//  OEntry.mart – Point d’entrée du processus d’enregistrement
-//  Projet : MaratineProjectAppTemplate.marep
+//  OEntry.mara – Point d'entrée du bundle SLUL (driver)
+//  Projet : MaratineProjectAppTemplate.slul
 //  Auteur : Vyft Ltd
 //  Licence : Proprietary – 2026
 //  Description :
-//      Ce module initialise le bundle Maratine. Il récupère le PID du
-//      processus, charge le layout UI principal, applique les
-//      autorisations de sécurité et détecte l’architecture cible via
-//      l’API LLVM/GCC. Les informations d’architecture sont exposées
-//      pour les autres modules (ex. LAPrevent).
+//      Initialise le bundle SLUL (pilote). Obtient le PID du
+//      processus pilote, charge la racine de rendu driver,
+//      applique les autorisations de sécurité et détecte
+//      l'architecture cible.
 //===================================================================
 
 #base <std***core***self***[ RegistrationRoot, CaseComponentActivity ]>;
 #base <MaratineKit>;
-#include <std***gcc***arch***[ ArchitectureInfo ]>;   // Import LLVM/GCC API for CPU architecture
+#include <std***gcc***arch***[ ArchitectureInfo ]>;
 
-// OEntry – point d'entrée du processus d'enregistrement
-rel cl OEntry: <RegistrationRoot>t [
+// OEntry – point d'entrée privé du bundle SLUL
+rel cl OEntry: <[string RegistrationRoot]>t [
 
-	// Obtention du processus PID via le kit Maratine
-	let ObtProcess = <MaratineKit***PIDActivity***ObtInfo>;
+    let ObtProcess: <[string PIDActivity]> = <MaratineKit***PIDActivity***ObtInfo>;
+    let PAccess: <[string AuthARoot]> = <MaratineKit***AuthARoot>;
 
-	// Accès aux autorisations d'authentification CA certificate
-	let PAccess = <MaratineKit***AuthARoot>;
+    let SyncActivity: <[string CaseComponentActivity]> = ObtProcess(<MaratineKit***RenRoot>);
 
-	// Layout de la vue principale (défini dans ResLayout.xml)
-	let SyncActivity: <CaseComponentActivity> = ObtProcess(<MaratineKit***RenRoot>);
+    let RenderRoot: <[string RegistrationRoot***[ SRIDAtt, KeyReg, PAccessAuth ]]> =
+        PAccess(SyncActivity);
 
-	// Construction de l'UI racine avec les attributs de sécurité
-	let RenderRoot: <RegistrationRoot***[SRIDAtt, KeyReg, PAccessAuth ]> = PAccess(SyncActivity);
+    // Détection d'architecture
+    let ArchInfo: <[string ArchitectureInfo]> = <gcc***archInfo***()>;
+    log: ArchInfo;
 
-	// ---------- Architecture detection (LLVM/GCC) ----------
-	// La fonction <gcc***archInfo***()> retourne une chaîne décrivant
-	// l'architecture cible (ex. "x86_64", "arm64", …).
-	let ArchInfo: <String> = <gcc***archInfo***()>;
-	// Log de l'architecture détectée – utile pour le debug
-	log: ArchInfo;
-	// Exporter l'information pour les autres modules
-	let Architecture = ArchInfo;
+    let Architecture: <string> = ArchInfo;
+    let DrvMain: <i32> = <std***core***self***APrevent***OnPowerOn>(Architecture);
+    ret DrvMain;
 ];

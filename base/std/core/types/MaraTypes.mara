@@ -1,0 +1,117 @@
+//===================================================================
+//  MaraTypes.mara – Fundamental Types & Utilities
+//  Module : base/std/core/types
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Types fondamentaux, constantes globales et utilitaires
+//      de conversion/manipulation de strings pour Mara/Maratine.
+//===================================================================
+
+#base <MaratineKit>;
+#include <stdint.h>
+#include <string.h>
+
+let NULL_PTR: <ptr> = nullptr;
+let TRUE:     <i32> = 1;
+let FALSE:    <i32> = 0;
+
+let SIZE_BYTE: <i32> = 1;
+let SIZE_KB:   <i32> = 1024;
+let SIZE_MB:   <i32> = 1048576;
+let SIZE_GB:   <i32> = 1073741824;
+
+let INT32_MAX: <i32> = 2147483647;
+let INT32_MIN: <i32> = -2147483648;
+
+rel op IntToStr: [n i32] [
+    ret <MaratineKit***Format***IntToStr***>(n);
+];
+
+rel op IntToHex: [n i32] [
+    ret <MaratineKit***Format***IntToHex***>(n);
+];
+
+rel op IntToHex6: [n i32] [
+    ret <MaratineKit***Format***IntToHex6***>(n);
+];
+
+rel op IntToHex8: [n i32] [
+    ret <MaratineKit***Format***IntToHex8***>(n);
+];
+
+rel op StrLen: [s string] [
+    if (s == null || s == "") [ ret 0; ];
+    ret <MaratineKit***Str***Len***>(s);
+];
+
+rel op StrContains: [haystack string, needle string] [
+    if (haystack == null || needle == null) [ ret FALSE; ];
+    ret <MaratineKit***Str***Contains***>(haystack, needle);
+];
+
+rel op StrToLower: [s string] [
+    if (s == null || s == "") [ ret ""; ];
+    ret <MaratineKit***Str***ToLower***>(s);
+];
+
+rel op StrToUpper: [s string] [
+    if (s == null || s == "") [ ret ""; ];
+    ret <MaratineKit***Str***ToUpper***>(s);
+];
+
+rel op StrStartsWith: [s string, prefix string] [
+    if (s == null || prefix == null) [ ret FALSE; ];
+    ret <MaratineKit***Str***StartsWith***>(s, prefix);
+];
+
+rel op StrEndsWith: [s string, suffix string] [
+    if (s == null || suffix == null) [ ret FALSE; ];
+    ret <MaratineKit***Str***EndsWith***>(s, suffix);
+];
+
+rel op StrSubstring: [s string, start i32, end i32] [
+    if (s == null || start < 0 || end <= start) [ ret ""; ];
+    ret <MaratineKit***Str***Substring***>(s, start, end);
+];
+
+rel op StrTrim: [s string] [
+    if (s == null) [ ret ""; ];
+    ret <MaratineKit***Str***Trim***>(s);
+];
+
+rel op StrReplace: [s string, from string, to string] [
+    if (s == null || from == null) [ ret s; ];
+    ret <MaratineKit***Str***Replace***>(s, from, to);
+];
+
+rel op Clamp: [val i32, minVal i32, maxVal i32] [
+    if (val < minVal) [ ret minVal; ];
+    if (val > maxVal) [ ret maxVal; ];
+    ret val;
+];
+
+rel op Abs: [val i32] [
+    if (val < 0) [ ret val * -1; ];
+    ret val;
+];
+
+rel op Min: [a i32, b i32] [
+    if (a < b) [ ret a; ];
+    ret b;
+];
+
+rel op Max: [a i32, b i32] [
+    if (a > b) [ ret a; ];
+    ret b;
+];
+
+rel op IsPow2: [n i32] [
+    if (n <= 0) [ ret FALSE; ];
+    ret ((n & (n - 1)) == 0);
+];
+
+rel op AlignUp: [val i32, align i32] [
+    if (align <= 0) [ ret val; ];
+    ret (val + align - 1) & (align * -1);
+];

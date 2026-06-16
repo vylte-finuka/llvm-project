@@ -1,0 +1,61 @@
+//===================================================================
+//  MathSafety.mara – Safe Arithmetic Utilities
+//  Module : base/std/ComTpe/MarepFrmt
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Arithmétique saturée et détection de dépassement pour entiers
+//      i32 et i64. Partagée par les bundles MAREP et SLUL.
+//===================================================================
+
+#base <MaratineKit>;
+
+let MATH_I32_MAX: <i32> = 2147483647;
+let MATH_I32_MIN: <i32> = -2147483648;
+let MATH_I64_MAX: <i64> = 9223372036854775807;
+
+// SatAddI32 – addition saturée i32
+rel cl SatAddI32: [a i32, b i32] [
+    let sum: <i64> = <MaratineKit***Math***I32ToI64***>(a) + <MaratineKit***Math***I32ToI64***>(b);
+    if (sum > MATH_I32_MAX) [ ret MATH_I32_MAX; ];
+    if (sum < MATH_I32_MIN) [ ret MATH_I32_MIN; ];
+    ret <MaratineKit***Math***I64ToI32***>(sum);
+];
+
+// SatSubI32 – soustraction saturée i32
+rel cl SatSubI32: [a i32, b i32] [
+    let diff: <i64> = <MaratineKit***Math***I32ToI64***>(a) - <MaratineKit***Math***I32ToI64***>(b);
+    if (diff > MATH_I32_MAX) [ ret MATH_I32_MAX; ];
+    if (diff < MATH_I32_MIN) [ ret MATH_I32_MIN; ];
+    ret <MaratineKit***Math***I64ToI32***>(diff);
+];
+
+// SatMulI32 – multiplication saturée i32
+rel cl SatMulI32: [a i32, b i32] [
+    let prod: <i64> = <MaratineKit***Math***I32ToI64***>(a) * <MaratineKit***Math***I32ToI64***>(b);
+    if (prod > MATH_I32_MAX) [ ret MATH_I32_MAX; ];
+    if (prod < MATH_I32_MIN) [ ret MATH_I32_MIN; ];
+    ret <MaratineKit***Math***I64ToI32***>(prod);
+];
+
+// SafeDivI32 – division sûre (retourne 0 si diviseur = 0)
+rel cl SafeDivI32: [a i32, b i32] [
+    if (b == 0) [
+        log: "MathSafety: division par zéro";
+        ret 0;
+    ];
+    ret a / b;
+];
+
+// ClampI32 – borne entre minVal et maxVal
+rel cl ClampI32: [val i32, minVal i32, maxVal i32] [
+    if (val < minVal) [ ret minVal; ];
+    if (val > maxVal) [ ret maxVal; ];
+    ret val;
+];
+
+// AbsI32 – valeur absolue i32
+rel cl AbsI32: [val i32] [
+    if (val < 0) [ ret val * -1; ];
+    ret val;
+];

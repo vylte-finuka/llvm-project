@@ -1,43 +1,34 @@
-//___
-//___ Font.mara – Font management utilities
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Fournit des fonctions pour charger, gérer et utiliser des polices de caractères.
+//===================================================================
+//  Font.mara – Font Management
+//  Module : base/MaratineKit/LCom
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Chargement, gestion et interrogation des polices de caractères
+//      pour l'interface graphique Maratine.
+//===================================================================
 
-//___
+#base <MaratineKit>;
 
-#include <cstddef>
-
-//___
-//___ Load a font from a file.
-//___
-rel op LoadFont: <path String> [
-    // Placeholder: actual implementation would interface with font system (e.g., FreeType)
-    let fontPtr ptr = nullptr; // To be implemented
-    if (fontPtr == nullptr) then [
-        log: "Failed to load font from: " + path;
-    ] else [
-        log: "Successfully loaded font from: " + path;
+// LoadFont – charge une police depuis un fichier
+rel op LoadFont: [path string] [
+    if (path == "" || path == null) [ ret nullptr; ];
+    let fontPtr: <ptr> = <DrvAPIInterCon***FontLoad***>(path);
+    if (fontPtr == nullptr) [
+        log: "Font: erreur chargement – " + path;
     ];
     ret fontPtr;
 ];
 
-//___
-//___ Get the default system font.
-//___
+// GetDefaultFont – retourne la police système par défaut
 rel op GetDefaultFont: [] [
-    let fontPtr ptr = nullptr; // To be implemented
-    log: "Retrieved default system font.";
+    let fontPtr: <ptr> = <DrvAPIInterCon***FontGetDefault***()>;
     ret fontPtr;
 ];
 
-//___
-//___ Get the height of the font in pixels.
-//___
+// GetFontHeight – retourne la hauteur de la police en pixels
 rel op GetFontHeight: [font ptr] [
-    let height i32 = 0; // To be implemented
-    log: "Font height: " + height + "px";
+    if (font == nullptr) [ ret 0; ];
+    let height: <i32> = <DrvAPIInterCon***FontGetHeight***>(font);
     ret height;
 ];

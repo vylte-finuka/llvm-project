@@ -1,0 +1,170 @@
+//===================================================================
+//  NotifMgr.mara – Notification Manager
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestion des notifications locales et distantes pour Slura.
+//      Supporte les alertes, badges, toasts et canaux prioritaires.
+//      Inclut les alertes cyclone (usage Madagascar) via canal SYSTEM.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***core***self***RegistrationRoot***[ PAccessAuth ]>;
+
+let NOTIF_MAX:        <i32> = 64;
+let NOTIF_NONE:       <i32> = 0;
+let NOTIF_LOCAL:      <i32> = 1;
+let NOTIF_REMOTE:     <i32> = 2;
+
+let CHAN_DEFAULT:     <i32> = 0;
+let CHAN_HEALTH:      <i32> = 1;
+let CHAN_MESSAGE:     <i32> = 2;
+let CHAN_SYSTEM:      <i32> = 3;
+let CHAN_SILENT:      <i32> = 4;
+
+let VIB_NONE:         <i32> = 0;
+let VIB_SHORT:        <i32> = 1;
+let VIB_LONG:         <i32> = 2;
+let VIB_PATTERN_SOS:  <i32> = 3;
+
+let NOTIF_OK:         <i32> = 0;
+let NOTIF_ERR_FULL:   <i32> = -1;
+let NOTIF_ERR_AUTH:   <i32> = -2;
+let NOTIF_ERR_CHAN:   <i32> = -3;
+let NOTIF_ERR_EMPTY:  <i32> = -4;
+
+var _notifIds:      <array> = [0;    NOTIF_MAX];
+var _notifTitles:   <array> = [null; NOTIF_MAX];
+var _notifBodies:   <array> = [null; NOTIF_MAX];
+var _notifChans:    <array> = [0;    NOTIF_MAX];
+var _notifTypes:    <array> = [0;    NOTIF_MAX];
+var _notifRead:     <array> = [0;    NOTIF_MAX];
+var _notifCount:    <i32>   = 0;
+var _badgeCount:    <i32>   = 0;
+var _nextId:        <i32>   = 1000;
+
+// Trouve un slot libre (privé)
+rel cl _FreeSlot: [] [
+    var i: <i32> = 0;
+    loop i < NOTIF_MAX [
+        if (_notifTypes[i] == NOTIF_NONE) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Post – publie une notification locale
+rel op Post: [title string, body string, channel i32, vibration i32] [
+    if (title == "" || title == null) [ ret NOTIF_ERR_EMPTY; ];
+    if (channel < CHAN_DEFAULT || channel > CHAN_SILENT) [ ret NOTIF_ERR_CHAN; ];
+
+    let slot: <i32> = _FreeSlot();
+    if (slot == -1) [ ret NOTIF_ERR_FULL; ];
+
+    let id: <i32> = _nextId;
+    _nextId = _nextId + 1;
+
+    _notifIds[slot]    = id;
+    _notifTitles[slot] = title;
+    _notifBodies[slot] = body;
+    _notifChans[slot]  = channel;
+    _notifTypes[slot]  = NOTIF_LOCAL;
+    _notifRead[slot]   = 0;
+    _notifCount        = _notifCount + 1;
+    _badgeCount        = _badgeCount + 1;
+
+    let _: <i32> = <DrvAPIInterCon***NotifShow***>(id, title, body, channel);
+
+    if (vibration != VIB_NONE) [
+        let _: <i32> = <DrvAPIInterCon***HapticVibrate***>(vibration, 80);
+    ];
+
+    ret id;
+];
+
+// PostAlert – alerte système prioritaire (canal SYSTEM, vibration SOS pour cyclone)
+rel op PostAlert: [title string, body string] [
+    ret Post(title, body, CHAN_SYSTEM, VIB_PATTERN_SOS);
+];
+
+// PostRemote – enregistre une notification distante reçue via réseau
+rel op PostRemote: [id i32, title string, body string, channel i32] [
+    let slot: <i32> = _FreeSlot();
+    if (slot == -1) [ ret NOTIF_ERR_FULL; ];
+
+    _notifIds[slot]    = id;
+    _notifTitles[slot] = title;
+    _notifBodies[slot] = body;
+    _notifChans[slot]  = channel;
+    _notifTypes[slot]  = NOTIF_REMOTE;
+    _notifRead[slot]   = 0;
+    _notifCount        = _notifCount + 1;
+    _badgeCount        = _badgeCount + 1;
+
+    let _: <i32> = <DrvAPIInterCon***NotifShow***>(id, title, body, channel);
+    ret id;
+];
+
+// Dismiss – supprime une notification par ID
+rel op Dismiss: [id i32] [
+    var i: <i32> = 0;
+    loop i < NOTIF_MAX [
+        if (_notifIds[i] == id) [
+            _notifTitles[i] = null;
+            _notifBodies[i] = null;
+            _notifTypes[i]  = NOTIF_NONE;
+            _notifRead[i]   = 0;
+            _notifIds[i]    = 0;
+            _notifCount     = _notifCount - 1;
+            let _: <i32> = <DrvAPIInterCon***NotifDismiss***>(id);
+            ret NOTIF_OK;
+        ];
+        i = i + 1;
+    ];
+    ret NOTIF_ERR_EMPTY;
+];
+
+// MarkRead – marque une notification comme lue et décrémente le badge
+rel op MarkRead: [id i32] [
+    var i: <i32> = 0;
+    loop i < NOTIF_MAX [
+        if (_notifIds[i] == id && _notifRead[i] == 0) [
+            _notifRead[i] = 1;
+            if (_badgeCount > 0) [ _badgeCount = _badgeCount - 1; ];
+            let _: <i32> = <DrvAPIInterCon***NotifSetBadge***>(_badgeCount);
+            ret NOTIF_OK;
+        ];
+        i = i + 1;
+    ];
+    ret NOTIF_ERR_EMPTY;
+];
+
+// DismissAll – vide toutes les notifications
+rel op DismissAll: [] [
+    var i: <i32> = 0;
+    loop i < NOTIF_MAX [
+        if (_notifTypes[i] != NOTIF_NONE) [
+            _notifTitles[i] = null;
+            _notifBodies[i] = null;
+            _notifTypes[i]  = NOTIF_NONE;
+            _notifRead[i]   = 0;
+            _notifIds[i]    = 0;
+        ];
+        i = i + 1;
+    ];
+    _notifCount = 0;
+    _badgeCount = 0;
+    let _: <i32> = <DrvAPIInterCon***NotifSetBadge***>(0);
+    ret NOTIF_OK;
+];
+
+// GetBadgeCount – retourne le nombre de notifications non lues
+rel op GetBadgeCount: [] [
+    ret _badgeCount;
+];
+
+// GetCount – retourne le nombre total de notifications actives
+rel op GetCount: [] [
+    ret _notifCount;
+];

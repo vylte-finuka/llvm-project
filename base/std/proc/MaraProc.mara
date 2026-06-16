@@ -1,0 +1,206 @@
+//===================================================================
+//  MaraProc.mara – Process Manager
+//  Module : base/std/proc
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestionnaire de processus Slura/Lunée.
+//      Cycle de vie des bundles .marep : Spawn, Kill, Pause, Resume.
+//      PIDs, priorités, IPC par messagerie et état de processus.
+//      Limite : 64 processus simultanés.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***core***self***RegistrationRoot***[ PAccessAuth, SRIDAtt ]>;
+#base <std***mem***[ MaraMem ]>;
+
+let PROC_NONE:     <i32> = 0;
+let PROC_STARTING: <i32> = 1;
+let PROC_RUNNING:  <i32> = 2;
+let PROC_PAUSED:   <i32> = 3;
+let PROC_STOPPING: <i32> = 4;
+let PROC_DEAD:     <i32> = 5;
+
+let PRIO_LOW:      <i32> = 0;
+let PRIO_NORMAL:   <i32> = 1;
+let PRIO_HIGH:     <i32> = 2;
+let PRIO_REALTIME: <i32> = 3;
+
+let IPC_MSG_MAX_LEN: <i32> = 4096;
+let IPC_QUEUE_DEPTH: <i32> = 32;
+
+let MAX_PROCS: <i32> = 64;
+
+let PROC_OK:          <i32> = 0;
+let PROC_ERR_FULL:    <i32> = -1;
+let PROC_ERR_NOAUTH:  <i32> = -2;
+let PROC_ERR_NOPROC:  <i32> = -3;
+let PROC_ERR_STATE:   <i32> = -4;
+let PROC_ERR_PRIO:    <i32> = -5;
+let PROC_ERR_INVALID: <i32> = -6;
+
+var _procNames:  <array> = [null; MAX_PROCS];
+var _procPids:   <array> = [0;    MAX_PROCS];
+var _procStates: <array> = [0;    MAX_PROCS];
+var _procPrios:  <array> = [1;    MAX_PROCS];
+var _procSrids:  <array> = [null; MAX_PROCS];
+var _procCount:  <i32>   = 0;
+var _nextPid:    <i32>   = 1000;
+
+// Recherche par PID (privé)
+rel cl _findByPid: [pid i32] [
+    var i: <i32> = 0;
+    loop i < _procCount [
+        if (_procPids[i] == pid) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Recherche par nom de bundle (privé)
+rel cl _findByName: [name string] [
+    if (name == "" || name == null) [ ret -1; ];
+    var i: <i32> = 0;
+    loop i < _procCount [
+        if (_procNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Spawn – crée et démarre un bundle .marep avec la priorité donnée
+rel op Spawn: [bundlePath string, prio i32] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret PROC_ERR_NOAUTH; ];
+    if (bundlePath == "" || bundlePath == null) [ ret PROC_ERR_INVALID; ];
+    if (_procCount >= MAX_PROCS) [ ret PROC_ERR_FULL; ];
+    if (prio < PRIO_LOW || prio > PRIO_HIGH) [ ret PROC_ERR_PRIO; ];
+
+    let pid: <i32> = _nextPid;
+    _nextPid = _nextPid + 1;
+
+    let ts: <string> = <MaratineKit***Time***NowStr***()>;
+    let _: <i32> = <SRIDAtt***Generate***>(bundlePath, ts);
+    let srid: <string> = <SRIDAtt***GetSRID***()>;
+
+    _procNames[_procCount]  = bundlePath;
+    _procPids[_procCount]   = pid;
+    _procStates[_procCount] = PROC_STARTING;
+    _procPrios[_procCount]  = prio;
+    _procSrids[_procCount]  = srid;
+    _procCount = _procCount + 1;
+
+    let result: <i32> = <DrvAPIInterCon***ProcSpawn***>(bundlePath, pid, prio);
+    if (result != 0) [
+        _procCount = _procCount - 1;
+        ret result;
+    ];
+
+    let idx: <i32> = _findByPid(pid);
+    if (idx != -1) [ _procStates[idx] = PROC_RUNNING; ];
+
+    ret pid;
+];
+
+// Kill – arrête un processus par PID (requiert ACCESS_SYSTEM)
+rel op Kill: [pid i32] [
+    if (!<PAccessAuth***IsAuthorized***>(2)) [ ret PROC_ERR_NOAUTH; ];
+
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret PROC_ERR_NOPROC; ];
+    if (_procStates[idx] == PROC_DEAD) [ ret PROC_ERR_STATE; ];
+
+    _procStates[idx] = PROC_STOPPING;
+    let _: <i32> = <DrvAPIInterCon***ProcKill***>(pid);
+    _procStates[idx] = PROC_DEAD;
+
+    ret PROC_OK;
+];
+
+// Pause – suspend un processus (onPause lifecycle)
+rel op Pause: [pid i32] [
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret PROC_ERR_NOPROC; ];
+    if (_procStates[idx] != PROC_RUNNING) [ ret PROC_ERR_STATE; ];
+
+    let _: <i32> = <DrvAPIInterCon***ProcSignal***>(pid, 1);
+    _procStates[idx] = PROC_PAUSED;
+    ret PROC_OK;
+];
+
+// Resume – reprend un processus suspendu (onResume lifecycle)
+rel op Resume: [pid i32] [
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret PROC_ERR_NOPROC; ];
+    if (_procStates[idx] != PROC_PAUSED) [ ret PROC_ERR_STATE; ];
+
+    let _: <i32> = <DrvAPIInterCon***ProcSignal***>(pid, 2);
+    _procStates[idx] = PROC_RUNNING;
+    ret PROC_OK;
+];
+
+// GetState – état courant d'un processus par PID
+rel op GetState: [pid i32] [
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret PROC_NONE; ];
+    ret _procStates[idx];
+];
+
+// GetPidByName – retourne le PID d'un bundle par son chemin
+rel op GetPidByName: [name string] [
+    let idx: <i32> = _findByName(name);
+    if (idx == -1) [ ret -1; ];
+    ret _procPids[idx];
+];
+
+// GetSrid – retourne le SRID de sécurité d'un processus
+rel op GetSrid: [pid i32] [
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret ""; ];
+    ret _procSrids[idx];
+];
+
+// SetPriority – ajuste la priorité d'un processus actif
+rel op SetPriority: [pid i32, prio i32] [
+    if (!<PAccessAuth***IsAuthorized***>(2)) [ ret PROC_ERR_NOAUTH; ];
+    if (prio < PRIO_LOW || prio > PRIO_REALTIME) [ ret PROC_ERR_PRIO; ];
+    let idx: <i32> = _findByPid(pid);
+    if (idx == -1) [ ret PROC_ERR_NOPROC; ];
+    _procPrios[idx] = prio;
+    let _: <i32> = <DrvAPIInterCon***ProcSetPrio***>(pid, prio);
+    ret PROC_OK;
+];
+
+// IPCSend – envoie un message IPC à un processus cible
+rel op IPCSend: [targetPid i32, msg ptr, msgLen i32] [
+    if (msg == nullptr || msgLen <= 0 || msgLen > IPC_MSG_MAX_LEN) [ ret PROC_ERR_INVALID; ];
+    let idx: <i32> = _findByPid(targetPid);
+    if (idx == -1) [ ret PROC_ERR_NOPROC; ];
+    if (_procStates[idx] != PROC_RUNNING) [ ret PROC_ERR_STATE; ];
+    ret <DrvAPIInterCon***IPCSend***>(targetPid, msg, msgLen);
+];
+
+// IPCRecv – reçoit le prochain message IPC destiné au processus appelant
+rel op IPCRecv: [outBuf ptr, maxLen i32] [
+    if (outBuf == nullptr || maxLen <= 0) [ ret -1; ];
+    ret <DrvAPIInterCon***IPCRecv***>(outBuf, maxLen);
+];
+
+// ListRunning – tableau des PIDs des processus à l'état RUNNING
+rel op ListRunning: [] [
+    var result: <array> = [0; MAX_PROCS];
+    var count: <i32> = 0;
+    var i: <i32> = 0;
+    loop i < _procCount [
+        if (_procStates[i] == PROC_RUNNING) [
+            result[count] = _procPids[i];
+            count = count + 1;
+        ];
+        i = i + 1;
+    ];
+    ret result;
+];
+
+// Count – nombre total de processus enregistrés (toutes états)
+rel op Count: [] [
+    ret _procCount;
+];

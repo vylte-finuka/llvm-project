@@ -1,120 +1,114 @@
 //===================================================================
 //  CaseComponentActivty.mara – Sensor & Biometric Acquisition
-//  Projet : MaratineProjectAppTemplate.marep
+//  Module : base/std/core/self
 //  Auteur : Vyft Ltd
 //  Licence : Proprietary – 2026
 //  Description :
-//      Ce module fournit une interface unifiée pour accéder aux
-//      capteurs sensoriels et biométriques de l’appareil (température,
-//      accélération, gyroscope, fréquence cardiaque, SpO₂, lumière
-//      ambiante, proximité, pression barométrique, humidité et
-//      magnétomètre).  Il utilise les API natives de Slura OS
-//      (<slura/sensor.h>) et retourne des valeurs typées Maratine
-//      (f32, u32, array de f32, bool).  Toutes les fonctions sont
-//      entièrement implémentées – aucun stub.
+//      Interface unifiée pour accéder aux capteurs et données
+//      biométriques de l'appareil. Toutes les valeurs numériques
+//      sont renvoyées en entiers i32 (×100 pour les décimales).
+//      Ex : température 23.50 °C → 2350.
 //===================================================================
 
 #base <MaratineKit>;
-#include <slura/sensor.h>   // Slura OS sensor API (still needed for hardware)
-#include <slura/types.h>
-#include "llvm/Support/TimeValue.h"   // LLVM time utilities (optional)
-#include "llvm/Support/MemoryBuffer.h" // LLVM memory helpers (optional)
+#base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
 
-// -----------------------------------------------------------------
-// Helper: convert a Slura sensor value (float) to Maratine f32
-// -----------------------------------------------------------------
-// (No conversion needed – the C float is binary‑compatible with Maratine f32)
+let SENSOR_TEMPERATURE: <i32> = 10;
+let SENSOR_ACCEL_X:     <i32> = 20;
+let SENSOR_ACCEL_Y:     <i32> = 21;
+let SENSOR_ACCEL_Z:     <i32> = 22;
+let SENSOR_GYRO_X:      <i32> = 30;
+let SENSOR_GYRO_Y:      <i32> = 31;
+let SENSOR_GYRO_Z:      <i32> = 32;
+let SENSOR_HEART_RATE:  <i32> = 40;
+let SENSOR_SPO2:        <i32> = 50;
+let SENSOR_LIGHT:       <i32> = 60;
+let SENSOR_PROXIMITY:   <i32> = 70;
+let SENSOR_PRESSURE:    <i32> = 80;
+let SENSOR_HUMIDITY:    <i32> = 90;
+let SENSOR_MAG_X:       <i32> = 100;
+let SENSOR_MAG_Y:       <i32> = 101;
+let SENSOR_MAG_Z:       <i32> = 102;
 
-// -----------------------------------------------------------------
-// Get ambient temperature in degrees Celsius
-// -----------------------------------------------------------------
+// GetTemperature – température ambiante (×100, ex. 2350 = 23.50 °C)
 rel cl GetTemperature: [] [
-    let temp f32 = slura_sensor_get_temperature(SLURA_SENSOR_TEMPERATURE);
-    log: "Temperature: " + temp + " °C";
+    let temp: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_TEMPERATURE);
+    log: "Température: " + temp;
     ret temp;
 ];
 
-// -----------------------------------------------------------------
-// Get 3‑axis accelerometer (m/s²) – returns [x, y, z]
-// -----------------------------------------------------------------
+// GetAccelerometer – accélération 3-axes (×1000 m/s²) — [x, y, z]
 rel cl GetAccelerometer: [] [
-    let vals f32[3] = slura_sensor_get_accelerometer(SLURA_SENSOR_ACCEL);
-    // Build a Maratine array literal
-    let acc array = [vals[0]; vals[1]; vals[2]];
-    log: "Accelerometer: [" + acc[0] + ", " + acc[1] + ", " + acc[2] + "] m/s²";
+    let x: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_ACCEL_X);
+    let y: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_ACCEL_Y);
+    let z: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_ACCEL_Z);
+    let acc: <array> = [x; y; z];
+    log: "Accéléromètre: [" + x + ", " + y + ", " + z + "]";
     ret acc;
 ];
 
-// -----------------------------------------------------------------
-// Get 3‑axis gyroscope (rad/s) – returns [x, y, z]
-// -----------------------------------------------------------------
+// GetGyroscope – gyroscope 3-axes (×1000 rad/s) — [x, y, z]
 rel cl GetGyroscope: [] [
-    let vals f32[3] = slura_sensor_get_gyroscope(SLURA_SENSOR_GYRO);
-    let gyr array = [vals[0]; vals[1]; vals[2]];
-    log: "Gyroscope: [" + gyr[0] + ", " + gyr[1] + ", " + gyr[2] + "] rad/s";
+    let x: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_GYRO_X);
+    let y: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_GYRO_Y);
+    let z: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_GYRO_Z);
+    let gyr: <array> = [x; y; z];
+    log: "Gyroscope: [" + x + ", " + y + ", " + z + "]";
     ret gyr;
 ];
 
-// -----------------------------------------------------------------
-// Get heart rate (beats per minute)
-// -----------------------------------------------------------------
+// GetHeartRate – fréquence cardiaque (bpm)
 rel cl GetHeartRate: [] [
-    let hr u32 = slura_sensor_get_heart_rate(SLURA_SENSOR_HR);
-    log: "Heart Rate: " + hr + " bpm";
+    let hr: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_HEART_RATE);
+    log: "Fréquence cardiaque: " + hr + " bpm";
     ret hr;
 ];
 
-// -----------------------------------------------------------------
-// Get peripheral capillary oxygen saturation (SpO₂) (%)
-// -----------------------------------------------------------------
+// GetSpO2 – saturation en oxygène (%)
 rel cl GetSpO2: [] [
-    let spo2 u32 = slura_sensor_get_spo2(SLURA_SENSOR_SPO2);
-    log: "SpO₂: " + spo2 + " %";
+    let spo2: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_SPO2);
+    log: "SpO2: " + spo2 + " %";
     ret spo2;
 ];
 
-// -----------------------------------------------------------------
-// Get ambient light intensity (lux)
-// -----------------------------------------------------------------
+// GetAmbientLight – luminosité ambiante (lux)
 rel cl GetAmbientLight: [] [
-    let lux u32 = slura_sensor_get_ambient_light(SLURA_SENSOR_LIGHT);
-    log: "Ambient Light: " + lux + " lux";
+    let lux: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_LIGHT);
+    log: "Luminosité: " + lux + " lux";
     ret lux;
 ];
 
-// -----------------------------------------------------------------
-// Get proximity detection (true = object near, false = far)
-// -----------------------------------------------------------------
+// GetProximity – proximité (1 = proche, 0 = loin)
 rel cl GetProximity: [] [
-    let near bool = slura_sensor_get_proximity(SLURA_SENSOR_PROX) != 0;
-    log: "Proximity: " + (if near then "NEAR" else "FAR");
+    let near: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_PROXIMITY);
+    if (near != 0) [
+        log: "Proximité: PROCHE";
+    ] else [
+        log: "Proximité: LOIN";
+    ];
     ret near;
 ];
 
-// -----------------------------------------------------------------
-// Get barometric pressure (hPa)
-// -----------------------------------------------------------------
+// GetBarometricPressure – pression barométrique (×100 hPa)
 rel cl GetBarometricPressure: [] [
-    let pressure f32 = slura_sensor_get_pressure(SLURA_SENSOR_PRESSURE);
-    log: "Barometric Pressure: " + pressure + " hPa";
+    let pressure: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_PRESSURE);
+    log: "Pression: " + pressure;
     ret pressure;
 ];
 
-// -----------------------------------------------------------------
-// Get relative humidity (%)
-// -----------------------------------------------------------------
+// GetHumidity – humidité relative (×100 %)
 rel cl GetHumidity: [] [
-    let humidity f32 = slura_sensor_get_humidity(SLURA_SENSOR_HUMIDITY);
-    log: "Humidity: " + humidity + " %";
+    let humidity: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_HUMIDITY);
+    log: "Humidité: " + humidity;
     ret humidity;
 ];
 
-// -----------------------------------------------------------------
-// Get 3‑axis magnetometer (µT) – returns [x, y, z]
-// -----------------------------------------------------------------
+// GetMagnetometer – magnétomètre 3-axes (×100 µT) — [x, y, z]
 rel cl GetMagnetometer: [] [
-    let vals f32[3] = slura_sensor_get_magnetometer(SLURA_SENSOR_MAG);
-    let mag array = [vals[0]; vals[1]; vals[2]];
-    log: "Magnetometer: [" + mag[0] + ", " + mag[1] + ", " + mag[2] + "] µT";
+    let x: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_MAG_X);
+    let y: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_MAG_Y);
+    let z: <i32> = <DrvAPIInterCon***SensorRead***>(SENSOR_MAG_Z);
+    let mag: <array> = [x; y; z];
+    log: "Magnétomètre: [" + x + ", " + y + ", " + z + "]";
     ret mag;
 ];

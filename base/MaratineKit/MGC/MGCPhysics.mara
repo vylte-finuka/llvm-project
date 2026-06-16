@@ -1,0 +1,185 @@
+//===================================================================
+//  MGCPhysics.mara – Maratine Graphical Compute — Physics Engine
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Moteur physique temps réel : corps rigides, corps souples,
+//      véhicules, ragdolls. Broadphase BVH GPU + narrowphase SAT.
+//      Gravité configurable, matériaux physiques (friction, restitution).
+//      512 corps rigides max, 64 corps souples, 32 contraintes.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+#base <MaratineKit***MGC***MGCCompute>;
+
+let BODY_STATIC:    <i32> = 0;
+let BODY_DYNAMIC:   <i32> = 1;
+let BODY_KINEMATIC: <i32> = 2;
+
+let SHAPE_BOX:      <i32> = 0;
+let SHAPE_SPHERE:   <i32> = 1;
+let SHAPE_CAPSULE:  <i32> = 2;
+let SHAPE_MESH:     <i32> = 3;
+let SHAPE_CONVEX:   <i32> = 4;
+
+let MAX_BODIES:      <i32> = 512;
+let MAX_SOFT_BODIES: <i32> = 64;
+let MAX_CONSTRAINTS: <i32> = 256;
+let MAX_CONTACTS:    <i32> = 2048;
+
+let PHY_OK:           <i32> = 0;
+let PHY_ERR_FULL:     <i32> = -1;
+let PHY_ERR_INVALID:  <i32> = -2;
+let PHY_ERR_NOT_FOUND:<i32> = -3;
+
+var _bodyHandles:   <array> = [nullptr; MAX_BODIES];
+var _bodyNames:     <array> = [null;    MAX_BODIES];
+var _bodyTypes:     <array> = [0;       MAX_BODIES];
+var _bodyCount:     <i32>   = 0;
+var _worldHandle:   <ptr>   = nullptr;
+var _gravity:       <i32>   = -10;
+var _substeps:      <i32>   = 4;
+var _accumMs:       <i32>   = 0;
+let  _fixedStepMs:  <i32>   = 16;
+
+// Cherche un corps par nom (privé)
+rel cl _findBody: [name string] [
+    var i: <i32> = 0;
+    loop i < _bodyCount [
+        if (_bodyNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Init – crée le monde physique avec la gravité par défaut
+rel op Init: [gravityY i32] [
+    _gravity = gravityY;
+    _worldHandle = <DrvAPIInterCon***PhysicsWorldCreate***>(gravityY);
+    if (_worldHandle == nullptr) [ ret PHY_ERR_INVALID; ];
+    log: "MGCPhysics: monde créé — gravité " + gravityY;
+    ret PHY_OK;
+];
+
+// AddBody – ajoute un corps rigide dans le monde
+rel op AddBody: [name string, bodyType i32, shapeType i32, halfExtents ptr, mass i32] [
+    if (name == null || _worldHandle == nullptr) [ ret PHY_ERR_INVALID; ];
+    if (_bodyCount >= MAX_BODIES) [ ret PHY_ERR_FULL; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***PhysicsBodyCreate***>(
+        _worldHandle, bodyType, shapeType, halfExtents, mass
+    );
+    if (handle == nullptr) [ ret PHY_ERR_INVALID; ];
+
+    _bodyNames[_bodyCount]   = name;
+    _bodyHandles[_bodyCount] = handle;
+    _bodyTypes[_bodyCount]   = bodyType;
+    _bodyCount = _bodyCount + 1;
+    ret PHY_OK;
+];
+
+// AddVehicle – corps rigide spécialisé véhicule avec suspensions
+rel op AddVehicle: [name string, chassisHandle ptr, wheelCount i32, suspensionLength i32] [
+    if (name == null || chassisHandle == nullptr) [ ret PHY_ERR_INVALID; ];
+    if (_bodyCount >= MAX_BODIES) [ ret PHY_ERR_FULL; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***PhysicsVehicleCreate***>(
+        _worldHandle, chassisHandle, wheelCount, suspensionLength
+    );
+    if (handle == nullptr) [ ret PHY_ERR_INVALID; ];
+
+    _bodyNames[_bodyCount]   = name;
+    _bodyHandles[_bodyCount] = handle;
+    _bodyTypes[_bodyCount]   = BODY_DYNAMIC;
+    _bodyCount = _bodyCount + 1;
+    ret PHY_OK;
+];
+
+// ApplyForce – applique une force à un corps dynamique
+rel op ApplyForce: [name string, forceVec ptr] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret PHY_ERR_NOT_FOUND; ];
+    if (_bodyTypes[idx] != BODY_DYNAMIC) [ ret PHY_ERR_INVALID; ];
+    ret <DrvAPIInterCon***PhysicsBodyApplyForce***>(_bodyHandles[idx], forceVec);
+];
+
+// ApplyImpulse – applique une impulsion instantanée
+rel op ApplyImpulse: [name string, impulseVec ptr] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret PHY_ERR_NOT_FOUND; ];
+    ret <DrvAPIInterCon***PhysicsBodyApplyImpulse***>(_bodyHandles[idx], impulseVec);
+];
+
+// SetVelocity – définit la vélocité linéaire
+rel op SetVelocity: [name string, velVec ptr] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret PHY_ERR_NOT_FOUND; ];
+    ret <DrvAPIInterCon***PhysicsBodySetVelocity***>(_bodyHandles[idx], velVec);
+];
+
+// GetTransform – retourne la matrice monde du corps (16 floats)
+rel op GetTransform: [name string] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret nullptr; ];
+    ret <DrvAPIInterCon***PhysicsBodyGetTransform***>(_bodyHandles[idx]);
+];
+
+// SetMaterial – configure friction et restitution d'un corps
+rel op SetMaterial: [name string, friction i32, restitution i32] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret PHY_ERR_NOT_FOUND; ];
+    ret <DrvAPIInterCon***PhysicsBodySetMaterial***>(
+        _bodyHandles[idx], friction, restitution
+    );
+];
+
+// Step – avance la simulation physique avec un delta-temps
+rel op Step: [deltaMs i32] [
+    if (_worldHandle == nullptr) [ ret PHY_ERR_INVALID; ];
+
+    _accumMs = _accumMs + deltaMs;
+    loop _accumMs >= _fixedStepMs [
+        var sub: <i32> = 0;
+        loop sub < _substeps [
+            let _: <i32> = <DrvAPIInterCon***PhysicsWorldStep***>(
+                _worldHandle, _fixedStepMs / _substeps
+            );
+            sub = sub + 1;
+        ];
+        _accumMs = _accumMs - _fixedStepMs;
+    ];
+
+    ret PHY_OK;
+];
+
+// Raycast – lance un rayon et retourne le premier corps touché
+rel op Raycast: [originVec ptr, dirVec ptr, maxDist i32] [
+    if (_worldHandle == nullptr || originVec == nullptr) [ ret nullptr; ];
+    ret <DrvAPIInterCon***PhysicsRaycast***>(_worldHandle, originVec, dirVec, maxDist);
+];
+
+// RemoveBody – supprime un corps du monde
+rel op RemoveBody: [name string] [
+    let idx: <i32> = _findBody(name);
+    if (idx == -1) [ ret PHY_ERR_NOT_FOUND; ];
+    let _: <i32> = <DrvAPIInterCon***PhysicsBodyDestroy***>(_worldHandle, _bodyHandles[idx]);
+    _bodyNames[idx]   = null;
+    _bodyHandles[idx] = nullptr;
+    _bodyCount = _bodyCount - 1;
+    ret PHY_OK;
+];
+
+// SetSubsteps – sous-pas de simulation (1–8, défaut 4)
+rel op SetSubsteps: [n i32] [
+    if (n < 1 || n > 8) [ ret PHY_ERR_INVALID; ];
+    _substeps = n;
+    ret PHY_OK;
+];
+
+// GetBodyCount – nombre de corps actifs
+rel op GetBodyCount: [] [
+    ret _bodyCount;
+];

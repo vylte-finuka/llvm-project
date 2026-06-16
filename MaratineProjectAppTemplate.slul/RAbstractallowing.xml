@@ -2,11 +2,11 @@
 <RAbstractallowing xmlns="http://vyft.com/schema/abstractallowing" version="1.0">
     <!-- Package metadata -------------------------------------------------- -->
     <Metadata>
-        <PackageName>com.helloworld.maratineapp</PackageName>
-    <SRID>SRID_helloworld_002</SRID>
+        <PackageName>com.slul.driver</PackageName>
+        <SRID>SRID_sluldriver_001</SRID>
         <FrameworkVersion>1.2.0</FrameworkVersion>
-        <Target>amd64</Target>
-        <Description>Application d’exemple HelloWorld pour Slura OS.</Description>
+        <Target>arm64</Target>
+        <Description>Template de pilote SLUL pour Slura OS.</Description>
     </Metadata>
 
     <!-- Permissions ------------------------------------------------------- -->

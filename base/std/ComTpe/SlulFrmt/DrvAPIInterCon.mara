@@ -1,864 +1,629 @@
-//___
-//___ DrvAPIInterCon.mara – Driver API Interface (Connector)
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Fournit une couche d’abstraction C‑compatible *universelle* pour
-//___     accéder aux fonctions matérielles (GPU, CPU, NPU, motherboard,
-//___     souris, écran, …) ainsi qu’aux APIs logicielles (système de fichiers,
-//___     protocoles réseau, extensions de fichiers, etc.).
-//___     L’implémentation réelle est fournie par des modules enfants qui
-//___     enregistrent leurs pointeurs de fonctions via les fonctions
-//___     Register* ci‑dessous.  Ainsi, DrvAPIInterCon reste totalement
-//___     indépendant du constructeur (Exynos, Qualcomm, Intel, …) et
-//___     réutilisable dans n’importe quel contexte Maratine.
-//___#base <MaratineKit>;
+//===================================================================
+//  DrvAPIInterCon.mara – Driver API Interface Connector
+//  Module : base/std/ComTpe/SlulFrmt
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Couche d'abstraction universelle pour accéder aux fonctions
+//      matérielles (GPU, CPU, capteurs, fichiers, réseau, ACPI,
+//      PCIe, gestion de l'alimentation) et aux APIs logicielles.
+//      Les modules enfants enregistrent leurs pointeurs de fonctions
+//      via les fonctions Register* ; DrvAPIInterCon reste totalement
+//      indépendant du constructeur et réutilisable dans tout contexte.
+//===================================================================
+
+#base <MaratineKit>;
 #include <cstddef>
-#include <dlfcn.h>          // dlopen, dlsym, dlerror (optionnel pour le chargement dynamique)
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
 // -----------------------------------------------------------------
-// 1. GPU – initialisation et rendu de pixel
+// 1. GPU – initialisation, rendu de pixel, flush, HDR, espaces couleur
 // -----------------------------------------------------------------
-var _gpuInitFn: ptr = nullptr;                 // pointeur vers la fonction d’initialisation GPU
-var _gpuDrawPixelFn: ptr = nullptr;            // pointeur vers la fonction de dessin de pixel
+var _gpuInitFn:          <ptr> = nullptr;
+var _gpuDrawPixelFn:     <ptr> = nullptr;
+var _gpuFlushFn:         <ptr> = nullptr;
+var _gpuShutdownFn:      <ptr> = nullptr;
+var _gpuSuspendFn:       <ptr> = nullptr;
+var _gpuResumeFn:        <ptr> = nullptr;
+var _gpuSetColorSpaceFn: <ptr> = nullptr;
+var _gpuSetHDRFn:        <ptr> = nullptr;
+var _gpuQueryHDRFn:      <ptr> = nullptr;
+var _gpuLoadICCFn:       <ptr> = nullptr;
+var _gpuGetCapsFn:       <ptr> = nullptr;
 
-rel cl RegisterGpuInit: <fn ptr> [
+rel cl RegisterGpuInit: [fn ptr] [
     _gpuInitFn = fn;
-    log: "DrvAPIInterCon: GPU init function registered.";
     ret 0;
 ];
 
-rel cl RegisterGpuDrawPixel: <fn ptr> [
+rel cl RegisterGpuDrawPixel: [fn ptr] [
     _gpuDrawPixelFn = fn;
-    log: "DrvAPIInterCon: GPU draw‑pixel function registered.";
     ret 0;
 ];
 
-rel cl GpuInit: <> [
-    if (_gpuInitFn == nullptr) then [
-        log: "DrvAPIInterCon: GPU init function not registered.";
-        ret -1;
-    ];
-    // Appel réel du pointeur enregistré
-    let retVal i32 = (<cstd***int (*)()***>_gpuInitFn)();
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: GPU driver initialised successfully";
-    ] else [
-        log: "DrvAPIInterCon: GPU driver initialisation failed (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl RegisterGpuFlush: [fn ptr] [
+    _gpuFlushFn = fn;
+    ret 0;
 ];
 
-rel cl GpuDrawPixel: <x i32, y i32, color u32> [
-    if (_gpuDrawPixelFn == nullptr) then [
-        log: "DrvAPIInterCon: GPU draw‑pixel function not registered.";
+rel cl RegisterGpuShutdown: [fn ptr] [
+    _gpuShutdownFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuSuspend: [fn ptr] [
+    _gpuSuspendFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuResume: [fn ptr] [
+    _gpuResumeFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuSetColorSpace: [fn ptr] [
+    _gpuSetColorSpaceFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuSetHDR: [fn ptr] [
+    _gpuSetHDRFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuQueryHDR: [fn ptr] [
+    _gpuQueryHDRFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuLoadICC: [fn ptr] [
+    _gpuLoadICCFn = fn;
+    ret 0;
+];
+
+rel cl RegisterGpuGetCapabilities: [fn ptr] [
+    _gpuGetCapsFn = fn;
+    ret 0;
+];
+
+rel cl GpuInit: [] [
+    if (_gpuInitFn == nullptr) [
+        errs() << "DrvAPIInterCon: GpuInit non enregistré\n";
         ret -1;
     ];
-    let retVal i32 = (<cstd***int (*)(int,int,unsigned int)***>_gpuDrawPixelFn)(x, y, color);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Drew pixel at (" + x + ", " + y + ") colour 0x" + color;
-    ] else [
-        log: "DrvAPIInterCon: Failed to draw pixel (code " + retVal + ")";
+    ret <cstd***GpuInitCall***>(_gpuInitFn);
+];
+
+rel cl GpuDrawPixel: [x i32, y i32, color i32] [
+    if (_gpuDrawPixelFn == nullptr) [ ret -1; ];
+    ret <cstd***GpuDrawPixelCall***>(_gpuDrawPixelFn, x, y, color);
+];
+
+rel cl GpuFlushRenderContext: [ctx ptr] [
+    if (_gpuFlushFn == nullptr) [
+        errs() << "DrvAPIInterCon: GpuFlushRenderContext non enregistré\n";
+        ret -1;
     ];
-    ret retVal;
+    ret <cstd***GpuFlushCall***>(_gpuFlushFn, ctx);
+];
+
+rel cl GpuShutdown: [] [
+    if (_gpuShutdownFn == nullptr) [ ret 0; ];
+    ret <cstd***GpuShutdownCall***>(_gpuShutdownFn);
+];
+
+rel cl GpuSuspend: [] [
+    if (_gpuSuspendFn == nullptr) [ ret 0; ];
+    ret <cstd***GpuSuspendCall***>(_gpuSuspendFn);
+];
+
+rel cl GpuResume: [] [
+    if (_gpuResumeFn == nullptr) [ ret 0; ];
+    ret <cstd***GpuResumeCall***>(_gpuResumeFn);
+];
+
+rel cl GpuSetColorSpace: [space string] [
+    if (_gpuSetColorSpaceFn == nullptr) [ ret -1; ];
+    ret <cstd***GpuSetColorSpaceCall***>(_gpuSetColorSpaceFn, space);
+];
+
+rel cl GpuSetHDR: [enabled i32] [
+    if (_gpuSetHDRFn == nullptr) [ ret -1; ];
+    ret <cstd***GpuSetHDRCall***>(_gpuSetHDRFn, enabled);
+];
+
+rel cl GpuQueryHDRSupport: [] [
+    if (_gpuQueryHDRFn == nullptr) [ ret 0; ];
+    ret <cstd***GpuQueryHDRCall***>(_gpuQueryHDRFn);
+];
+
+rel cl GpuLoadICCProfileFromFile: [path string] [
+    if (_gpuLoadICCFn == nullptr) [ ret -1; ];
+    ret <cstd***GpuLoadICCCall***>(_gpuLoadICCFn, path);
+];
+
+rel cl GpuGetDisplayCapabilities: [] [
+    if (_gpuGetCapsFn == nullptr) [ ret nullptr; ];
+    ret <cstd***GpuGetCapsCall***>(_gpuGetCapsFn);
 ];
 
 // -----------------------------------------------------------------
-// 2. CPU – information et utilisation
+// 2. CPU – informations et charge
 // -----------------------------------------------------------------
-var _cpuGetVendorFn: ptr = nullptr;
-var _cpuGetLoadFn: ptr = nullptr;
+var _cpuGetVendorFn: <ptr> = nullptr;
+var _cpuGetLoadFn:   <ptr> = nullptr;
 
-rel cl RegisterCpuGetVendor: <fn ptr> [
+rel cl RegisterCpuGetVendor: [fn ptr] [
     _cpuGetVendorFn = fn;
-    log: "DrvAPIInterCon: CPU get‑vendor function registered.";
     ret 0;
 ];
 
-rel cl RegisterCpuGetLoad: <fn ptr> [
+rel cl RegisterCpuGetLoad: [fn ptr] [
     _cpuGetLoadFn = fn;
-    log: "DrvAPIInterCon: CPU get‑load function registered.";
     ret 0;
 ];
 
-rel cl CpuGetVendor: <> [
-    if (_cpuGetVendorFn == nullptr) then [
-        log: "DrvAPIInterCon: CPU vendor function not registered.";
-        ret "";
-    ];
-    let vendorPtr ptr = (<cstd***const char* (*)()***>_cpuGetVendorFn)();
-    let vendor String = vendorPtr;   // conversion C‑string → String Maratine
-    log: "DrvAPIInterCon: CPU Vendor = " + vendor;
-    ret vendor;
+rel cl CpuGetVendor: [] [
+    if (_cpuGetVendorFn == nullptr) [ ret ""; ];
+    ret <cstd***CpuGetVendorCall***>(_cpuGetVendorFn);
 ];
 
-rel cl CpuGetLoad: <> [
-    if (_cpuGetLoadFn == nullptr) then [
-        log: "DrvAPIInterCon: CPU load function not registered.";
-        ret -1.0;
-    ];
-    let loadPercent f32 = (<cstd***float (*)()***>_cpuGetLoadFn)();
-    log: "DrvAPIInterCon: CPU Load = " + loadPercent + "%";
-    ret loadPercent;
+rel cl CpuGetLoad: [] [
+    if (_cpuGetLoadFn == nullptr) [ ret -1; ];
+    ret <cstd***CpuGetLoadCall***>(_cpuGetLoadFn);
 ];
 
 // -----------------------------------------------------------------
-// 3. Generic memory barrier (utile pour la synchronisation des pilotes)
+// 3. Mémoire – allocation, libération, effacement
 // -----------------------------------------------------------------
-var _memoryBarrierFn: ptr = nullptr;
+var _memAllocFn: <ptr> = nullptr;
+var _memFreeFn:  <ptr> = nullptr;
+var _memZeroFn:  <ptr> = nullptr;
 
-rel cl RegisterMemoryBarrier: <fn ptr> [
-    _memoryBarrierFn = fn;
-    log: "DrvAPIInterCon: Memory barrier function registered.";
+rel cl RegisterMemAlloc: [fn ptr] [
+    _memAllocFn = fn;
     ret 0;
 ];
 
-rel cl MemoryBarrier: <> [
-    if (_memoryBarrierFn == nullptr) then [
-        log: "DrvAPIInterCon: Memory barrier function not registered.";
-        ret -1;
-    ];
-    let _ = (<cstd***void (*)()***>_memoryBarrierFn)();
-    log: "DrvAPIInterCon: Memory barrier issued";
+rel cl RegisterMemFree: [fn ptr] [
+    _memFreeFn = fn;
     ret 0;
 ];
 
-// -----------------------------------------------------------------
-// 4. NPU – exemple d’appel d’accélérateur neuronal (si disponible)
-// -----------------------------------------------------------------
-var _npuRunInferenceFn: ptr = nullptr;
-
-rel cl RegisterNpuRunInference: <fn ptr> [
-    _npuRunInferenceFn = fn;
-    log: "DrvAPIInterCon: NPU run‑inference function registered.";
+rel cl RegisterMemZero: [fn ptr] [
+    _memZeroFn = fn;
     ret 0;
 ];
 
-rel cl NpuRunInference: <modelPtr ptr, inputPtr ptr, outputPtr ptr> [
-    if (_npuRunInferenceFn == nullptr) then [
-        log: "DrvAPIInterCon: NPU inference function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(void*,void*,void*)***>_npuRunInferenceFn)(modelPtr, inputPtr, outputPtr);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: NPU inference completed";
-    ] else [
-        log: "DrvAPIInterCon: NPU inference failed (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl MemAlloc: [size i32, zone i32, align i32] [
+    if (_memAllocFn == nullptr) [ ret nullptr; ];
+    ret <cstd***MemAllocCall***>(_memAllocFn, size, zone, align);
+];
+
+rel cl MemFree: [p ptr, zone i32] [
+    if (_memFreeFn == nullptr) [ ret -1; ];
+    ret <cstd***MemFreeCall***>(_memFreeFn, p, zone);
+];
+
+rel cl MemZero: [p ptr, size i32] [
+    if (_memZeroFn == nullptr) [ ret -1; ];
+    ret <cstd***MemZeroCall***>(_memZeroFn, p, size);
+];
+
+rel cl MemoryBarrier: [] [
+    ret <cstd***MemBarrierCall***>();
 ];
 
 // -----------------------------------------------------------------
-// 5. Motherboard – lecture d’un registre de configuration (exemple)
+// 4. Système de fichiers – ouverture, lecture, écriture, fermeture
 // -----------------------------------------------------------------
-var _motherboardReadRegFn: ptr = nullptr;
+var _fsOpenFn:         <ptr> = nullptr;
+var _fsReadAllFn:      <ptr> = nullptr;
+var _fsWriteFn:        <ptr> = nullptr;
+var _fsCloseFn:        <ptr> = nullptr;
+var _fsDeleteFn:       <ptr> = nullptr;
+var _fsMkDirFn:        <ptr> = nullptr;
+var _fsGetFreeSpaceFn: <ptr> = nullptr;
 
-rel cl RegisterMotherboardReadReg: <fn ptr> [
-    _motherboardReadRegFn = fn;
-    log: "DrvAPIInterCon: Motherboard read‑reg function registered.";
+rel cl RegisterFSOpen: [fn ptr] [
+    _fsOpenFn = fn;
     ret 0;
 ];
 
-rel cl MotherboardReadReg: <addr u32> [
-    if (_motherboardReadRegFn == nullptr) then [
-        log: "DrvAPIInterCon: Motherboard read‑reg function not registered.";
-        ret 0xFFFFFFFF;
-    ];
-    let value u32 = (<cstd***uint32_t (*)(uint32_t)***>_motherboardReadRegFn)(addr);
-    log: "DrvAPIInterCon: Motherboard register 0x" + addr + " = 0x" + value;
-    ret value;
-];
-
-// -----------------------------------------------------------------
-// 6. Mouse – obtenir les derniers delta X/Y et l’état des boutons
-// -----------------------------------------------------------------
-var _mouseGetDxFn: ptr = nullptr;
-var _mouseGetDyFn: ptr = nullptr;
-var _mouseGetButtonsFn: ptr = nullptr;
-
-rel cl RegisterMouseGetDx: <fn ptr> [
-    _mouseGetDxFn = fn;
-    log: "DrvAPIInterCon: Mouse get‑dx function registered.";
+rel cl RegisterFSReadAll: [fn ptr] [
+    _fsReadAllFn = fn;
     ret 0;
 ];
 
-rel cl RegisterMouseGetDy: <fn ptr> [
-    _mouseGetDyFn = fn;
-    log: "DrvAPIInterCon: Mouse get‑dy function registered.";
+rel cl RegisterFSWrite: [fn ptr] [
+    _fsWriteFn = fn;
     ret 0;
 ];
 
-rel cl RegisterMouseGetButtons: <fn ptr> [
-    _mouseGetButtonsFn = fn;
-    log: "DrvAPIInterCon: Mouse get‑buttons function registered.";
+rel cl RegisterFSClose: [fn ptr] [
+    _fsCloseFn = fn;
     ret 0;
 ];
 
-rel cl MouseGetState: [] [
-    if (_mouseGetDxFn == nullptr || _mouseGetDyFn == nullptr || _mouseGetButtonsFn == nullptr) then [
-        log: "DrvAPIInterCon: One or more mouse functions not registered.";
-        let empty array = [0; 0; 0];
-        ret empty;
-    ];
-    let dx i32 = (<cstd***int (*)()***>_mouseGetDxFn)();
-    let dy i32 = (<cstd***int (*)()***>_mouseGetDyFn)();
-    let buttons u32 = (<cstd***uint32_t (*)()***>_mouseGetButtonsFn)();
-    log: "DrvAPIInterCon: Mouse dx=" + dx + " dy=" + dy + " buttons=0x" + buttons;
-    let state array = [dx; dy; buttons];
-    ret state;
-];
-
-// -----------------------------------------------------------------
-// 7. Screen – définir le mode vidéo (résolution, rafraîchissement)
-// -----------------------------------------------------------------
-var _screenSetModeFn: ptr = nullptr;
-
-rel cl RegisterScreenSetMode: [fn ptr] [
-    _screenSetModeFn = fn;
-    log: "DrvAPIInterCon: Screen set‑mode function registered.";
+rel cl RegisterFSDelete: [fn ptr] [
+    _fsDeleteFn = fn;
     ret 0;
 ];
 
-rel cl ScreenSetMode: [width u32, height u32, refreshHz u32] [
-    if (_screenSetModeFn == nullptr) then [
-        log: "DrvAPIInterCon: Screen set‑mode function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(uint32_t,uint32_t,uint32_t)***>_screenSetModeFn)(width, height, refreshHz);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Screen mode set to " + width + "x" + height + "@" + refreshHz + "Hz";
-    ] else [
-        log: "DrvAPIInterCon: Failed to set screen mode (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl RegisterFSMkDir: [fn ptr] [
+    _fsMkDirFn = fn;
+    ret 0;
+];
+
+rel cl RegisterFSGetFreeSpace: [fn ptr] [
+    _fsGetFreeSpaceFn = fn;
+    ret 0;
+];
+
+rel cl FSOpen: [path string, mode i32] [
+    if (_fsOpenFn == nullptr) [ ret nullptr; ];
+    ret <cstd***FSOpenCall***>(_fsOpenFn, path, mode);
+];
+
+rel cl FSReadAll: [handle ptr] [
+    if (_fsReadAllFn == nullptr) [ ret nullptr; ];
+    ret <cstd***FSReadAllCall***>(_fsReadAllFn, handle);
+];
+
+rel cl FSWrite: [handle ptr, data ptr, size i32] [
+    if (_fsWriteFn == nullptr) [ ret -1; ];
+    ret <cstd***FSWriteCall***>(_fsWriteFn, handle, data, size);
+];
+
+rel cl FSClose: [handle ptr] [
+    if (_fsCloseFn == nullptr) [ ret -1; ];
+    ret <cstd***FSCloseCall***>(_fsCloseFn, handle);
+];
+
+rel cl FSDelete: [path string] [
+    if (_fsDeleteFn == nullptr) [ ret -1; ];
+    ret <cstd***FSDeleteCall***>(_fsDeleteFn, path);
+];
+
+rel cl FSMkDir: [path string, recursive bool] [
+    if (_fsMkDirFn == nullptr) [ ret -1; ];
+    ret <cstd***FSMkDirCall***>(_fsMkDirFn, path, recursive);
+];
+
+rel cl FSGetFreeSpace: [path string] [
+    if (_fsGetFreeSpaceFn == nullptr) [ ret 0; ];
+    ret <cstd***FSGetFreeSpaceCall***>(_fsGetFreeSpaceFn, path);
 ];
 
 // -----------------------------------------------------------------
-// 8. File‑system – opérations génériques (ouvert, lecture, écriture, fermeture)
+// 5. Réseau – WiFi, LTE, LoRa, eSIM
 // -----------------------------------------------------------------
-var _fileOpenFn: ptr = nullptr;
-var _fileReadFn: ptr = nullptr;
-var _fileWriteFn: ptr = nullptr;
-var _fileCloseFn: ptr = nullptr;
+var _wifiGetSignalFn:  <ptr> = nullptr;
+var _wifiConnectFn:    <ptr> = nullptr;
+var _lteGetSignalFn:   <ptr> = nullptr;
+var _lteConnectFn:     <ptr> = nullptr;
+var _loraGetSignalFn:  <ptr> = nullptr;
+var _loraConnectFn:    <ptr> = nullptr;
+var _netDisconnectFn:  <ptr> = nullptr;
+var _netGetSignalFn:   <ptr> = nullptr;
+var _esimInitFn:       <ptr> = nullptr;
 
-rel cl RegisterFileOpen: [fn ptr] [
-    _fileOpenFn = fn;
-    log: "DrvAPIInterCon: File open function registered.";
-    ret 0;
-];
+rel cl RegisterWifiGetSignal: [fn ptr] [ _wifiGetSignalFn = fn; ret 0; ];
+rel cl RegisterWifiConnect:   [fn ptr] [ _wifiConnectFn   = fn; ret 0; ];
+rel cl RegisterLteGetSignal:  [fn ptr] [ _lteGetSignalFn  = fn; ret 0; ];
+rel cl RegisterLteConnect:    [fn ptr] [ _lteConnectFn    = fn; ret 0; ];
+rel cl RegisterLoRaGetSignal: [fn ptr] [ _loraGetSignalFn = fn; ret 0; ];
+rel cl RegisterLoRaConnect:   [fn ptr] [ _loraConnectFn   = fn; ret 0; ];
+rel cl RegisterNetDisconnect: [fn ptr] [ _netDisconnectFn = fn; ret 0; ];
+rel cl RegisterNetGetSignal:  [fn ptr] [ _netGetSignalFn  = fn; ret 0; ];
+rel cl RegisterESimInit:      [fn ptr] [ _esimInitFn      = fn; ret 0; ];
 
-rel cl RegisterFileRead: [fn ptr] [
-    _fileReadFn = fn;
-    log: "DrvAPIInterCon: File read function registered.";
-    ret 0;
-];
-
-rel cl RegisterFileWrite: [fn ptr] [
-    _fileWriteFn = fn;
-    log: "DrvAPIInterCon: File write function registered.";
-    ret 0;
-];
-
-rel cl RegisterFileClose: [fn ptr] [
-    _fileCloseFn = fn;
-    log: "DrvAPIInterCon: File close function registered.";
-    ret 0;
-];
-
-rel cl FileOpen: [path String, flags i32] [
-    if (_fileOpenFn == nullptr) then [
-        log: "DrvAPIInterCon: File open function not registered.";
-        ret nullptr;
-    ];
-    // On suppose que la fonction enregistrée a la signature :
-    //   void* (*)(const char*, int)
-    let handle ptr = (<cstd***void* (*)(const char*,int)***>_fileOpenFn)(path.c_str(), flags);
-    log: "DrvAPIInterCon: Opened file '" + path + "' with flags " + flags + " → handle " + handle;
-    ret handle;
-];
-
-rel cl FileRead: [handle ptr, buffer ptr, size u32] [
-    if (_fileReadFn == nullptr) then [
-        log: "DrvAPIInterCon: File read function not registered.";
-        ret 0;
-    ];
-    let bytesRead u32 = (<cstd***uint32_t (*)(void*,void*,uint32_t)***>_fileReadFn)(handle, buffer, size);
-    log: "DrvAPIInterCon: Read " + bytesRead + " bytes from handle " + handle;
-    ret bytesRead;
-];
-
-rel cl FileWrite: [handle ptr, buffer ptr, size u32] [
-    if (_fileWriteFn == nullptr) then [
-        log: "DrvAPIInterCon: File write function not registered.";
-        ret 0;
-    ];
-    let bytesWritten u32 = (<cstd***uint32_t (*)(void*,const void*,uint32_t)***>_fileWriteFn)(handle, buffer, size);
-    log: "DrvAPIInterCon: Wrote " + bytesWritten + " bytes to handle " + handle;
-    ret bytesWritten;
-];
-
-rel cl FileClose: [handle ptr] [
-    if (_fileCloseFn == nullptr) then [
-        log: "DrvAPIInterCon: File close function not registered.";
-        ret -1;
-    ];
-    let result i32 = (<cstd***int (*)(void*)***>_fileCloseFn)(handle);
-    log: "DrvAPIInterCon: Closed handle " + handle + " → result " + result;
-    ret result;
-];
+rel cl WifiGetSignal:  [] [ if (_wifiGetSignalFn  == nullptr) [ ret 0;  ]; ret <cstd***WifiGetSignalCall***>(_wifiGetSignalFn);  ];
+rel cl WifiConnect:    [apn string] [ if (_wifiConnectFn   == nullptr) [ ret -1; ]; ret <cstd***WifiConnectCall***>(_wifiConnectFn, apn);   ];
+rel cl LteGetSignal:   [] [ if (_lteGetSignalFn   == nullptr) [ ret 0;  ]; ret <cstd***LteGetSignalCall***>(_lteGetSignalFn);   ];
+rel cl LteConnect:     [apn string, iccid string] [ if (_lteConnectFn == nullptr) [ ret -1; ]; ret <cstd***LteConnectCall***>(_lteConnectFn, apn, iccid); ];
+rel cl LoRaGetSignal:  [] [ if (_loraGetSignalFn  == nullptr) [ ret 0;  ]; ret <cstd***LoRaGetSignalCall***>(_loraGetSignalFn);  ];
+rel cl LoRaConnect:    [apn string] [ if (_loraConnectFn   == nullptr) [ ret -1; ]; ret <cstd***LoRaConnectCall***>(_loraConnectFn, apn);   ];
+rel cl NetDisconnect:  [net i32]    [ if (_netDisconnectFn  == nullptr) [ ret -1; ]; ret <cstd***NetDisconnectCall***>(_netDisconnectFn, net); ];
+rel cl NetGetSignal:   [net i32]    [ if (_netGetSignalFn   == nullptr) [ ret 0;  ]; ret <cstd***NetGetSignalCall***>(_netGetSignalFn, net);   ];
+rel cl ESimInit:       [iccid string] [ if (_esimInitFn     == nullptr) [ ret -1; ]; ret <cstd***ESimInitCall***>(_esimInitFn, iccid);         ];
 
 // -----------------------------------------------------------------
-// 9. Protocoles réseau – exemple DHCP (client) – fonctions génériques
+// 6. Capteurs – podomètre, altimètre, stylet, tactile, couronne
 // -----------------------------------------------------------------
-var _dhcpStartFn: ptr = nullptr;
-var _dhcpStopFn: ptr = nullptr;
-var _dhcpGetLeaseFn: ptr = nullptr;
+var _pedometerGetStepsFn: <ptr> = nullptr;
+var _pedometerResetFn:    <ptr> = nullptr;
+var _altimeterGetAltFn:   <ptr> = nullptr;
+var _touchGetEventFn:     <ptr> = nullptr;
+var _stylusGetEventFn:    <ptr> = nullptr;
+var _crownGetStateFn:     <ptr> = nullptr;
+var _torchSetLevelFn:     <ptr> = nullptr;
+var _cameraCaptFn:        <ptr> = nullptr;
+var _hapticVibrateFn:     <ptr> = nullptr;
+var _hallGetStateFn:      <ptr> = nullptr;
 
-rel cl RegisterDhcpStart: [fn ptr] [
-    _dhcpStartFn = fn;
-    log: "DrvAPIInterCon: DHCP start function registered.";
-    ret 0;
+rel cl RegisterPedometerGetSteps: [fn ptr] [ _pedometerGetStepsFn = fn; ret 0; ];
+rel cl RegisterPedometerReset:    [fn ptr] [ _pedometerResetFn    = fn; ret 0; ];
+rel cl RegisterAltimeterGetAlt:   [fn ptr] [ _altimeterGetAltFn   = fn; ret 0; ];
+rel cl RegisterTouchGetEvent:     [fn ptr] [ _touchGetEventFn     = fn; ret 0; ];
+rel cl RegisterStylusGetEvent:    [fn ptr] [ _stylusGetEventFn    = fn; ret 0; ];
+rel cl RegisterCrownGetState:     [fn ptr] [ _crownGetStateFn     = fn; ret 0; ];
+rel cl RegisterTorchSetLevel:     [fn ptr] [ _torchSetLevelFn     = fn; ret 0; ];
+rel cl RegisterCameraCapture:     [fn ptr] [ _cameraCaptFn        = fn; ret 0; ];
+rel cl RegisterHapticVibrate:     [fn ptr] [ _hapticVibrateFn     = fn; ret 0; ];
+rel cl RegisterHallGetState:      [fn ptr] [ _hallGetStateFn      = fn; ret 0; ];
+
+rel cl PedometerGetSteps: [] [
+    if (_pedometerGetStepsFn == nullptr) [ ret 0; ];
+    ret <cstd***PedometerGetStepsCall***>(_pedometerGetStepsFn);
 ];
 
-rel cl RegisterDhcpStop: [fn ptr] [
-    _dhcpStopFn = fn;
-    log: "DrvAPIInterCon: DHCP stop function registered.";
-    ret 0;
+rel cl PedometerReset: [] [
+    if (_pedometerResetFn == nullptr) [ ret -1; ];
+    ret <cstd***PedometerResetCall***>(_pedometerResetFn);
 ];
 
-rel cl RegisterDhcpGetLease: [fn ptr] [
-    _dhcpGetLeaseFn = fn;
-    log: "DrvAPIInterCon: DHCP get‑lease function registered.";
-    ret 0;
+rel cl AltimeterGetAltitude: [] [
+    if (_altimeterGetAltFn == nullptr) [ ret 0; ];
+    ret <cstd***AltimeterGetAltCall***>(_altimeterGetAltFn);
 ];
 
-rel cl DhcpStart: [iface String] [
-    if (_dhcpStartFn == nullptr) then [
-        log: "DrvAPIInterCon: DHCP start function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(const char*)***>_dhcpStartFn)(iface.c_str());
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: DHCP client started on interface '" + iface + "'";
-    ] else [
-        log: "DrvAPIInterCon: DHCP start failed (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl TouchGetEvent: [] [
+    if (_touchGetEventFn == nullptr) [ ret nullptr; ];
+    ret <cstd***TouchGetEventCall***>(_touchGetEventFn);
 ];
 
-rel cl DhcpStop: [] [
-    if (_dhcpStopFn == nullptr) then [
-        log: "DrvAPIInterCon: DHCP stop function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)()***>_dhcpStopFn)();
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: DHCP client stopped";
-    ] else [
-        log: "DrvAPIInterCon: DHCP stop failed (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl StylusGetEvent: [] [
+    if (_stylusGetEventFn == nullptr) [ ret nullptr; ];
+    ret <cstd***StylusGetEventCall***>(_stylusGetEventFn);
 ];
 
-rel cl DhcpGetLease: [] [
-    if (_dhcpGetLeaseFn == nullptr) then [
-        log: "DrvAPIInterCon: DHCP get‑lease function not registered.";
-        ret "";
-    ];
-    // On suppose que la fonction retourne un C‑string contenant l’adresse IP bailée
-    let leasePtr ptr = (<cstd***const char* (*)()***>_dhcpGetLeaseFn)();
-    let lease String = leasePtr;
-    log: "DrvAPIInterCon: DHCP lease obtained: " + lease;
-    ret lease;
+rel cl CrownGetState: [] [
+    if (_crownGetStateFn == nullptr) [ ret 0; ];
+    ret <cstd***CrownGetStateCall***>(_crownGetStateFn);
+];
+
+rel cl TorchSetLevel: [level i32] [
+    if (_torchSetLevelFn == nullptr) [ ret -1; ];
+    ret <cstd***TorchSetLevelCall***>(_torchSetLevelFn, level);
+];
+
+rel cl CameraCapture: [] [
+    if (_cameraCaptFn == nullptr) [ ret nullptr; ];
+    ret <cstd***CameraCaptureCall***>(_cameraCaptFn);
+];
+
+rel cl HapticVibrate: [durationMs i32, intensity i32] [
+    if (_hapticVibrateFn == nullptr) [ ret -1; ];
+    ret <cstd***HapticVibrateCall***>(_hapticVibrateFn, durationMs, intensity);
+];
+
+rel cl HallGetState: [] [
+    if (_hallGetStateFn == nullptr) [ ret 0; ];
+    ret <cstd***HallGetStateCall***>(_hallGetStateFn);
+];
+
+// SensorRead – lecture générique d'un capteur par identifiant numérique
+var _sensorReadFn: <ptr> = nullptr;
+
+rel cl RegisterSensorRead: [fn ptr] [ _sensorReadFn = fn; ret 0; ];
+
+rel cl SensorRead: [sensorId i32] [
+    if (_sensorReadFn == nullptr) [ ret 0; ];
+    ret <cstd***SensorReadCall***>(_sensorReadFn, sensorId);
 ];
 
 // -----------------------------------------------------------------
-// 10. ACPI – Gestion de la configuration et de l'alimentation
+// 7. Cryptographie – TRNG, AES-256-GCM, SHA-256, HMAC
 // -----------------------------------------------------------------
-var _acpiGetTableFn: ptr = nullptr;          // const void* (*)(char* signature, uint index)
-var _acpiEvaluateObjectFn: ptr = nullptr;    // int (*)(char* path, char* method, void* args, void** result)
-var _acpiGetPowerStateFn: ptr = nullptr;     // int (*)(uint device_id, int* state)
-var _acpiSetPowerStateFn: ptr = nullptr;     // int (*)(uint device_id, int state)
-var _acpiGetThermalZoneFn: ptr = nullptr;    // int (*)(uint zone_id, int* temperature, int* cooling_mode)
-var _acpiSetCoolingPolicyFn: ptr = nullptr;  // int (*)(uint zone_id, int policy)
+var _cryptoTRNGFillFn:       <ptr> = nullptr;
+var _cryptoAES256GCMEncFn:   <ptr> = nullptr;
+var _cryptoSHA256Fn:         <ptr> = nullptr;
+var _cryptoHMACSHA256Fn:     <ptr> = nullptr;
 
-// Enregistrement des fonctions ACPI
-rel cl RegisterAcpiGetTable: [fn ptr] [
-    _acpiGetTableFn = fn;
-    log: "DrvAPIInterCon: ACPI get-table function registered.";
-    ret 0;
+rel cl RegisterCryptoTRNGFill:       [fn ptr] [ _cryptoTRNGFillFn     = fn; ret 0; ];
+rel cl RegisterCryptoAES256GCMEncrypt:[fn ptr] [ _cryptoAES256GCMEncFn = fn; ret 0; ];
+rel cl RegisterCryptoSHA256:         [fn ptr] [ _cryptoSHA256Fn        = fn; ret 0; ];
+rel cl RegisterCryptoHMACSHA256:     [fn ptr] [ _cryptoHMACSHA256Fn   = fn; ret 0; ];
+
+rel cl CryptoTRNGFill: [buf ptr, size i32] [
+    if (_cryptoTRNGFillFn == nullptr) [ ret -1; ];
+    ret <cstd***CryptoTRNGFillCall***>(_cryptoTRNGFillFn, buf, size);
 ];
 
-rel cl RegisterAcpiEvaluateObject: [fn ptr] [
-    _acpiEvaluateObjectFn = fn;
-    log: "DrvAPIInterCon: ACPI evaluate-object function registered.";
-    ret 0;
+rel cl CryptoAES256GCMEncrypt: [key ptr, iv ptr, plaintext ptr, size i32, cipherBuf ptr] [
+    if (_cryptoAES256GCMEncFn == nullptr) [ ret -1; ];
+    ret <cstd***CryptoAES256GCMEncCall***>(_cryptoAES256GCMEncFn, key, iv, plaintext, size, cipherBuf);
 ];
 
-rel cl RegisterAcpiGetPowerState: [fn ptr] [
-    _acpiGetPowerStateFn = fn;
-    log: "DrvAPIInterCon: ACPI get-power-state function registered.";
-    ret 0;
+rel cl CryptoSHA256: [data ptr, size i32, hashBuf ptr] [
+    if (_cryptoSHA256Fn == nullptr) [ ret -1; ];
+    ret <cstd***CryptoSHA256Call***>(_cryptoSHA256Fn, data, size, hashBuf);
 ];
 
-rel cl RegisterAcpiSetPowerState: [fn ptr] [
-    _acpiSetPowerStateFn = fn;
-    log: "DrvAPIInterCon: ACPI set-power-state function registered.";
-    ret 0;
-];
-
-rel cl RegisterAcpiGetThermalZone: [fn ptr] [
-    _acpiGetThermalZoneFn = fn;
-    log: "DrvAPIInterCon: ACPI get-thermal-zone function registered.";
-    ret 0;
-];
-
-rel cl RegisterAcpiSetCoolingPolicy: [fn ptr] [
-    _acpiSetCoolingPolicyFn = fn;
-    log: "DrvAPIInterCon: ACPI set-cooling-policy function registered.";
-    ret 0;
-];
-
-// Appels génériques (à utiliser par le code MAREP/SLUL)
-rel cl AcpiGetTable: [signature String, index u32] [
-    if (_acpiGetTableFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI get-table function not registered.";
-        ret nullptr;
-    ];
-    let tablePtr ptr = (<cstd***const void* (*)(const char*, uint32_t)***>_acpiGetTableFn)(
-        signature.c_str(), index
-    ];
-    if (tablePtr == nullptr) then [
-        log: "DrvAPIInterCon: ACPI table '" + signature + "[" + index + "]' not found";
-    ] else [
-        log: "DrvAPIInterCon: Retrieved ACPI table '" + signature + "[" + index + "]' at " + tablePtr;
-    ];
-    ret tablePtr;
-];
-
-rel cl AcpiEvaluateObject: [path String, method String] [
-    if (_acpiEvaluateObjectFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI evaluate-object function not registered.";
-        ret -1;
-    ];
-    // Supposons une signature simplifiée pour l'exemple (à adapter selon votre implémentation)
-    let retVal i32 = (<cstd***int (*)(const char*, const char*)***>_acpiEvaluateObjectFn)(
-        path.c_str(), method.c_str()
-    );
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Evaluated ACPI object '" + path + "." + method + "' successfully";
-    ] else [
-        log: "DrvAPIInterCon: Failed to evaluate ACPI object '" + path + "." + method + "' (code " + retVal + ")";
-    ];
-    ret retVal;
-];
-
-rel cl AcpiGetPowerState: [deviceId u32] [
-    if (_acpiGetPowerStateFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI get-power-state function not registered.";
-        ret -1;
-    ];
-    let statePtr ptr = stackalloc i32; // Allocation sur pile pour le paramètre de sortie
-    let retVal i32 = (<cstd***int (*)(uint32_t, int32_t*)***>_acpiGetPowerStateFn)(deviceId, statePtr);
-    if (retVal == 0) then [
-        let state i32 = *statePtr;
-        log: "DrvAPIInterCon: Power state of device " + deviceId + " = " + state;
-        ret state;
-    ] else [
-        log: "DrvAPIInterCon: Failed to get power state for device " + deviceId + " (code " + retVal + ")";
-        ret -1;
-    ];
-];
-
-rel cl AcpiSetPowerState: [deviceId u32, state i32] [
-    if (_acpiSetPowerStateFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI set-power-state function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(uint32_t, int32_t)***>_acpiSetPowerStateFn)(deviceId, state);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Set power state of device " + deviceId + " to " + state;
-    ] else [
-        log: "DrvAPIInterCon: Failed to set power state for device " + deviceId + " (code " + retVal + ")";
-    ];
-    ret retVal;
-];
-
-rel cl AcpiGetThermalZone: [zoneId u32] [
-    if (_acpiGetThermalZoneFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI get-thermal-zone function not registered.";
-        let result array = [-1; -1]; // [temperature, cooling_mode]
-        ret result;
-    ];
-    let tempPtr ptr = stackalloc i32;
-    let policyPtr ptr = stackalloc i32;
-    let retVal i32 = (<cstd***int (*)(uint32_t, int32_t*, int32_t*)***>_acpiGetThermalZoneFn)(zoneId, tempPtr, policyPtr);
-    if (retVal == 0) then [
-        let temperature i32 = *tempPtr;
-        let coolingMode i32 = *policyPtr;
-        let result array = [temperature; coolingMode];
-        log: "DrvAPIInterCon: Thermal zone " + zoneId + ": temp=" + temperature + "°C, policy=" + coolingMode;
-        ret result;
-    ] else [
-        log: "DrvAPIInterCon: Failed to get thermal zone " + zoneId + " (code " + retVal + ")";
-        let result array = [-1; -1];
-        ret result;
-    ];
-];
-
-rel cl AcpiSetCoolingPolicy: [zoneId u32, policy i32] [
-    if (_acpiSetCoolingPolicyFn == nullptr) then [
-        log: "DrvAPIInterCon: ACPI set-cooling-policy function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(uint32_t, int32_t)***>_acpiSetCoolingPolicyFn)(zoneId, policy);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Set cooling policy for zone " + zoneId + " to " + policy;
-    ] else [
-        log: "DrvAPIInterCon: Failed to set cooling policy for zone " + zoneId + " (code " + retVal + ")";
-    ];
-    ret retVal;
+rel cl CryptoHMACSHA256: [key ptr, data ptr, size i32, hmacBuf ptr] [
+    if (_cryptoHMACSHA256Fn == nullptr) [ ret -1; ];
+    ret <cstd***CryptoHMACSHA256Call***>(_cryptoHMACSHA256Fn, key, data, size, hmacBuf);
 ];
 
 // -----------------------------------------------------------------
-// 11. PCIe – Configuration space access
+// 8. Processus – spawn, kill, état
 // -----------------------------------------------------------------
-var _pciConfigReadFn: ptr = nullptr;   // uint32_t (*)(uint bus, uint dev, uint func, uint offset, uint width)
-var _pciConfigWriteFn: ptr = nullptr;  // void (*)(uint bus, uint dev, uint func, uint offset, uint width, uint32_t value)
+var _procSpawnFn: <ptr> = nullptr;
+var _procKillFn:  <ptr> = nullptr;
 
-rel cl RegisterPciConfigRead: [fn ptr] [
-    _pciConfigReadFn = fn;
-    log: "DrvAPIInterCon: PCIe config read function registered.";
-    ret 0;
+rel cl RegisterProcSpawn: [fn ptr] [ _procSpawnFn = fn; ret 0; ];
+rel cl RegisterProcKill:  [fn ptr] [ _procKillFn  = fn; ret 0; ];
+
+rel cl ProcSpawn: [bundlePath string, pid i32, prio i32] [
+    if (_procSpawnFn == nullptr) [ ret -1; ];
+    ret <cstd***ProcSpawnCall***>(_procSpawnFn, bundlePath, pid, prio);
 ];
 
-rel cl RegisterPciConfigWrite: [fn ptr] [
-    _pciConfigWriteFn = fn;
-    log: "DrvAPIInterCon: PCIe config write function registered.";
-    ret 0;
-];
-
-rel cl PciConfigRead: [bus u32, dev u32, func u32, offset u32, width u32] [
-    if (_pciConfigReadFn == nullptr) then [
-        log: "DrvAPIInterCon: PCIe config read function not registered.";
-        ret 0xFFFFFFFF; // Erreur
-    ];
-    // width: 0=byte, 1=word, 2=dword (supposition)
-    let value u32 = (<cstd***uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)***>_pciConfigReadFn)(
-        bus, dev, func, offset, width
-    ];
-    log: "DrvAPIInterCon: PCIe config read [B" + bus + ":D" + dev + ":F" + func + "+0x" + offset + "] = 0x" + value + " (width=" + width + ")";
-    ret value;
-];
-
-rel cl PciConfigWrite: [bus u32, dev u32, func u32, offset u32, width u32, value u32] [
-    if (_pciConfigWriteFn == nullptr) then [
-        log: "DrvAPIInterCon: PCIe config write function not registered.";
-        ret -1;
-    ];
-    // width: 0=byte, 1=word, 2=dword
-    let _ = (<cstd***void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)***>_pciConfigWriteFn)(
-        bus, dev, func, offset, width, value
-    ];
-    log: "DrvAPIInterCon: PCIe config write [B" + bus + ":D" + dev + ":F" + func + "+0x" + offset + "] = 0x" + value + " (width=" + width + ")";
-    ret 0;
-};
-
-// -----------------------------------------------------------------
-// 12. Power Management – États globaux du système
-// -----------------------------------------------------------------
-var _systemSleepFn: ptr = nullptr;     // int (*)(uint sleep_state)
-var _systemWakeFn: ptr = nullptr;      // int (*)(void)
-var _systemGetCapabilitiesFn: ptr = nullptr; // uint64_t (*)(void) - masque des états S0-S5 supportés
-
-rel cl RegisterSystemSleep: [fn ptr] [
-    _systemSleepFn = fn;
-    log: "DrvAPIInterCon: System sleep function registered.";
-    ret 0;
-];
-
-rel cl RegisterSystemWake: [fn ptr] [
-    _systemWakeFn = fn;
-    log: "DrvAPIInterCon: System wake function registered.";
-    ret 0;
-];
-
-rel cl RegisterSystemGetCapabilities: [fn ptr] [
-    _systemGetCapabilitiesFn = fn;
-    log: "DrvAPIInterCon: System get-capabilities function registered.";
-    ret 0;
-];
-
-rel cl SystemSleep: [state u32] [
-    if (_systemSleepFn == nullptr) then [
-        log: "DrvAPIInterCon: System sleep function not registered.";
-        ret -1;
-    ];
-    // États S0-S5 : 0=Working, 1=Sleep1, 2=Sleep2, 3=Sleep3, 4=Sleep4, 5=Shutdown
-    let retVal i32 = (<cstd***int (*)(uint32_t)***>_systemSleepFn)(state);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: System sleep state " + state + " entered successfully";
-    ] else [
-        log: "DrvAPIInterCon: Failed to enter system sleep state " + state + " (code " + retVal + ")";
-    ];
-    ret retVal;
-];
-
-rel cl SystemWake: [] [
-    if (_systemWakeFn == nullptr) then [
-        log: "DrvAPIInterCon: System wake function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)()***>_systemWakeFn)();
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: System wake successful";
-    ] else [
-        log: "DrvAPIInterCon: System wake failed (code " + retVal + ")";
-    ];
-    ret retVal;
-];
-
-rel cl SystemGetCapabilities: [] [
-    if (_systemGetCapabilitiesFn == nullptr) then [
-        log: "DrvAPIInterCon: System get-capabilities function not registered.";
-        ret 0; // Aucun état supporté (erreur)
-    ];
-    let capabilities u64 = (<cstd***uint64_t (*)()***>_systemGetCapabilitiesFn)();
-    log: "DrvAPIInterCon: System power capabilities = 0x" + capabilities;
-    ret capabilities;
+rel cl ProcKill: [pid i32] [
+    if (_procKillFn == nullptr) [ ret -1; ];
+    ret <cstd***ProcKillCall***>(_procKillFn, pid);
 ];
 
 // -----------------------------------------------------------------
-// 13. Thermal Management – Refroidissement actif/passif
+// 9. Processus – PID, UID, threads
 // -----------------------------------------------------------------
-var _thermalGetTripPointFn: ptr = nullptr; // int (*)(uint zone, uint trip, int* temp, int* hysteresis)
-var _thermalSetTripPointFn: ptr = nullptr; // int (*)(uint zone, uint trip, int temp, int hysteresis)
-var _thermalGetCoolingDeviceFn: ptr = nullptr; // int (*)(uint device, uint* type, uint* instance, uint* level)
+var _procGetPIDFn:    <ptr> = nullptr;
+var _procGetUIDFn:    <ptr> = nullptr;
+var _procGetThreadFn: <ptr> = nullptr;
 
-rel cl RegisterThermalGetTripPoint: [fn ptr] [
-    _thermalGetTripPointFn = fn;
-    log: "DrvAPIInterCon: Thermal get-trip-point function registered.";
-    ret 0;
+rel cl RegisterProcessGetPID:         [fn ptr] [ _procGetPIDFn    = fn; ret 0; ];
+rel cl RegisterProcessGetUID:         [fn ptr] [ _procGetUIDFn    = fn; ret 0; ];
+rel cl RegisterProcessGetThreadCount: [fn ptr] [ _procGetThreadFn = fn; ret 0; ];
+
+rel cl ProcessGetPID: [] [
+    if (_procGetPIDFn == nullptr) [ ret -1; ];
+    ret <cstd***ProcGetPIDCall***>(_procGetPIDFn);
 ];
 
-rel cl RegisterThermalSetTripPoint: [fn ptr] [
-    _thermalSetTripPointFn = fn;
-    log: "DrvAPIInterCon: Thermal set-trip-point function registered.";
-    ret 0;
+rel cl ProcessGetUID: [] [
+    if (_procGetUIDFn == nullptr) [ ret -1; ];
+    ret <cstd***ProcGetUIDCall***>(_procGetUIDFn);
 ];
 
-rel cl RegisterThermalGetCoolingDevice: [fn ptr] [
-    _thermalGetCoolingDeviceFn = fn;
-    log: "DrvAPIInterCon: Thermal get-cooling-device function registered.";
-    ret 0;
-];
-
-rel cl ThermalGetTripPoint: [zone u32, trip u32] [
-    if (_thermalGetTripPointFn == nullptr) then [
-        log: "DrvAPIInterCon: Thermal get-trip-point function not registered.";
-        let result array = [-1; -1]; // [temp, hysteresis]
-        ret result;
-    ];
-    let tempPtr ptr = stackalloc i32;
-    let hystPtr ptr = stackalloc i32;
-    let retVal i32 = (<cstd***int (*)(uint32_t,uint32_t,int32_t*,int32_t*)***>_thermalGetTripPointFn)(zone, trip, tempPtr, hystPtr);
-    if (retVal == 0) then [
-        let temp i32 = *tempPtr;
-        let hyst i32 = *hystPtr;
-        let result array = [temp; hyst];
-        log: "DrvAPIInterCon: Thermal zone " + zone + " trip " + trip + ": temp=" + temp + "°C, hysteresis=" + hyst;
-        ret result;
-    ] else [
-        log: "DrvAPIInterCon: Failed to get thermal trip point for zone " + zone + ", trip " + trip + " (code " + retVal + ")";
-        let result array = [-1; -1];
-        ret result;
-    ];
-];
-
-rel cl ThermalSetTripPoint: [zone u32, trip u32, temp i32, hysteresis i32] [
-    if (_thermalSetTripPointFn == nullptr) then [
-        log: "DrvAPIInterCon: Thermal set-trip-point function not registered.";
-        ret -1;
-    ];
-    let retVal i32 = (<cstd***int (*)(uint32_t,uint32_t,int32_t,int32_t)***>_thermalSetTripPointFn)(zone, trip, temp, hysteresis);
-    if (retVal == 0) then [
-        log: "DrvAPIInterCon: Set thermal trip point for zone " + zone + ", trip " + trip + " to " + temp + "°C (hyst=" + hysteresis + ")";
-    ] else [
-        log: "DrvAPIInterCon: Failed to set thermal trip point for zone " + zone + ", trip " + trip + " (code " + retVal + ")";
-    ];
-    ret retVal;
-];
-
-rel cl ThermalGetCoolingDevice: [device u32] [
-    if (_thermalGetCoolingDeviceFn == nullptr) then [
-        log: "DrvAPIInterCon: Thermal get-cooling-device function not registered.";
-        let result array = [0xFFFFFFFF; 0xFFFFFFFF; 0xFFFFFFFF]; // [type, instance, level]
-        ret result;
-    ];
-    let typePtr ptr = stackalloc u32;
-    let instancePtr ptr = stackalloc u32;
-    let levelPtr ptr = stackalloc u32;
-    let retVal i32 = (<cstd***int (*)(uint32_t,uint32_t*,uint32_t*,uint32_t*)***>_thermalGetCoolingDeviceFn)(device, typePtr, instancePtr, levelPtr);
-    if (retVal == 0) then [
-        let type u32 = *typePtr;
-        let instance u32 = *instancePtr;
-        let level u32 = *levelPtr;
-        let result array = [type; instance; level];
-        log: "DrvAPIInterCon: Cooling device " + device + ": type=" + type + ", instance=" + instance + ", level=" + level;
-        ret result;
-    ] else [
-        log: "DrvAPIInterCon: Failed to get cooling device " + device + " (code " + retVal + ")";
-        let result array = [0xFFFFFFFF; 0xFFFFFFFF; 0xFFFFFFFF];
-        ret result;
-    ];
+rel cl ProcessGetThreadCount: [] [
+    if (_procGetThreadFn == nullptr) [ ret 0; ];
+    ret <cstd***ProcGetThreadCall***>(_procGetThreadFn);
 ];
 
 // -----------------------------------------------------------------
-// 14. UEFI Services – Accès aux services du firmware (boot-time)
+// 10. Authentification – certificats, vérification signature
 // -----------------------------------------------------------------
-var _uefiGetVariableFn: ptr = nullptr;   // efi_status (*)(const char*, const char*, uint32_t*, uintn_t*, void*)
-var _uefiSetVariableFn: ptr = nullptr;   // efi_status (*)(const char*, const char*, uint32_t, uintn_t, void*)
-var _uefiGetNextVariableNameFn: ptr = nullptr; // efi_status (*)(uintn_t*, char16_t*, const char*)
-var _uefiGetTimeFn: ptr = nullptr;       // efi_status (*)(efi_time*, efi_time_capabilities*)
-var _uefiSetTimeFn: ptr = nullptr;       // efi_status (*)(efi_time*)
-var _uefiGetWakeupTimeFn: ptr = nullptr; // efi_status (*)(boolean*, boolean*, efi_time*)
-var _uefiSetWakeupTimeFn: ptr = nullptr; // efi_status (*)(boolean, efi_time*)
+var _certLoadFn:   <ptr> = nullptr;
+var _certVerifyFn: <ptr> = nullptr;
+var _certPubKeyFn: <ptr> = nullptr;
+var _authVerifyFn: <ptr> = nullptr;
 
-rel cl RegisterUefiGetVariable: [fn ptr] [
-    _uefiGetVariableFn = fn;
-    log: "DrvAPIInterCon: UEFI get-variable function registered.";
-    ret 0;
+rel cl RegisterCertLoadFromFile: [fn ptr] [ _certLoadFn   = fn; ret 0; ];
+rel cl RegisterCertVerifyChain:  [fn ptr] [ _certVerifyFn = fn; ret 0; ];
+rel cl RegisterCertGetPubKey:    [fn ptr] [ _certPubKeyFn = fn; ret 0; ];
+rel cl RegisterAuthVerify:       [fn ptr] [ _authVerifyFn = fn; ret 0; ];
+
+rel cl CertLoadFromFile: [path string] [
+    if (_certLoadFn == nullptr) [ ret nullptr; ];
+    ret <cstd***CertLoadCall***>(_certLoadFn, path);
 ];
 
-rel cl RegisterUefiSetVariable: [fn ptr] [
-    _uefiSetVariableFn = fn;
-    log: "DrvAPIInterCon: UEFI set-variable function registered.";
-    ret 0;
+rel cl CertVerifyChain: [cert ptr] [
+    if (_certVerifyFn == nullptr) [ ret -1; ];
+    ret <cstd***CertVerifyCall***>(_certVerifyFn, cert);
 ];
 
-rel cl RegisterUefiGetNextVariableName: [fn ptr] [
-    _uefiGetNextVariableNameFn = fn;
-    log: "DrvAPIInterCon: UEFI get-next-variable-name function registered.";
-    ret 0;
+rel cl CertGetPubKey: [cert ptr] [
+    if (_certPubKeyFn == nullptr) [ ret nullptr; ];
+    ret <cstd***CertPubKeyCall***>(_certPubKeyFn, cert);
 ];
 
-rel cl RegisterUefiGetTime: [fn ptr] [
-    _uefiGetTimeFn = fn;
-    log: "DrvAPIInterCon: UEFI get-time function registered.";
-    ret 0;
+rel cl AuthVerify: [srid string, caKey ptr, level i32] [
+    if (_authVerifyFn == nullptr) [ ret -1; ];
+    ret <cstd***AuthVerifyCall***>(_authVerifyFn, srid, caKey, level);
 ];
 
-rel cl RegisterUefiSetTime: [fn ptr] [
-    _uefiSetTimeFn = fn;
-    log: "DrvAPIInterCon: UEFI set-time function registered.";
-    ret 0;
+// -----------------------------------------------------------------
+// 11. Instance – chargement, démarrage, déchargement
+// -----------------------------------------------------------------
+var _instanceStartFn:  <ptr> = nullptr;
+var _instanceUnloadFn: <ptr> = nullptr;
+var _callbackInvokeFn: <ptr> = nullptr;
+
+rel cl RegisterInstanceStart:    [fn ptr] [ _instanceStartFn  = fn; ret 0; ];
+rel cl RegisterInstanceUnload:   [fn ptr] [ _instanceUnloadFn = fn; ret 0; ];
+rel cl RegisterCallbackInvoke:   [fn ptr] [ _callbackInvokeFn = fn; ret 0; ];
+
+rel cl InstanceStart: [entryPtr ptr] [
+    if (_instanceStartFn == nullptr) [ ret -1; ];
+    ret <cstd***InstanceStartCall***>(_instanceStartFn, entryPtr);
 ];
 
-rel cl RegisterUefiGetWakeupTime: [fn ptr] [
-    _uefiGetWakeupTimeFn = fn;
-    log: "DrvAPIInterCon: UEFI get-wakeup-time function registered.";
-    ret 0;
+rel cl InstanceUnload: [handle ptr] [
+    if (_instanceUnloadFn == nullptr) [ ret -1; ];
+    ret <cstd***InstanceUnloadCall***>(_instanceUnloadFn, handle);
 ];
 
-rel cl RegisterUefiSetWakeupTime: [fn ptr] [
-    _uefiSetWakeupTimeFn = fn;
-    log: "DrvAPIInterCon: UEFI set-wakeup-time function registered.";
-    ret 0;
+rel cl CallbackInvoke: [cb ptr] [
+    if (_callbackInvokeFn == nullptr) [ ret -1; ];
+    ret <cstd***CallbackInvokeCall***>(_callbackInvokeFn, cb);
 ];
 
-// Note: Les implémentations UEFI nécessitent une gestion spécifique des types
-// (efi_status, uintn_t, efi_time, etc.) qui serait faite dans le module enfant
-// Ici, nous montrons l'interface générique - les détails de conversion sont
-// gérés par le module enfant qui enregistre ces fonctions
+// -----------------------------------------------------------------
+// 12. UI – texte, couleurs, mise en page
+// -----------------------------------------------------------------
+var _textRenderFn:      <ptr> = nullptr;
+var _textMeasureWFn:    <ptr> = nullptr;
+var _textMeasureHFn:    <ptr> = nullptr;
+var _uiSetBgColorFn:    <ptr> = nullptr;
+var _uiSetTextColorFn:  <ptr> = nullptr;
+var _uiSetMarginFn:     <ptr> = nullptr;
+var _uiSetPaddingFn:    <ptr> = nullptr;
+var _fontLoadFn:        <ptr> = nullptr;
+var _fontGetDefaultFn:  <ptr> = nullptr;
+var _fontGetHeightFn:   <ptr> = nullptr;
 
-rel cl UefiGetVariable: [variableName String, vendorGuid String] [
-    if (_uefiGetVariableFn == nullptr) then [
-        log: "DrvAPIInterCon: UEFI get-variable function not registered.";
-        ret nullptr; // Ou un code d'erreur spécifique
-    ];
-    // Dans une implémentation réelle, le module enfant gérerait la conversion
-    // des String Maratine en types UEFI appropriés (CHAR16*, GUID, etc.)
-    // Pour cet exemple, nous supposons une interface simplifiée
-    let status i32 = (<cstd***int (*)(const char*, const char*)***>_uefiGetVariableFn)(
-        variableName.c_str(), vendorGuid.c_str()
-    );
-    if (status == 0) then [
-        log: "DrvAPIInterCon: UEFI variable '" + variableName + "' (guid=" + vendorGuid + ") retrieved successfully";
-        // Retournerait un pointeur vers la valeur dans une implémentation complète
-        ret stackalloc u8[0]; // Placeholder
-    ] else [
-        log: "DrvAPIInterCon: Failed to get UEFI variable '" + variableName + "' (guid=" + vendorGuid + ") (code " + status + ")";
-        ret nullptr;
-    ];
+rel cl RegisterTextRender:     [fn ptr] [ _textRenderFn     = fn; ret 0; ];
+rel cl RegisterTextMeasureW:   [fn ptr] [ _textMeasureWFn   = fn; ret 0; ];
+rel cl RegisterTextMeasureH:   [fn ptr] [ _textMeasureHFn   = fn; ret 0; ];
+rel cl RegisterUISetBgColor:   [fn ptr] [ _uiSetBgColorFn   = fn; ret 0; ];
+rel cl RegisterUISetTextColor: [fn ptr] [ _uiSetTextColorFn = fn; ret 0; ];
+rel cl RegisterUISetMargin:    [fn ptr] [ _uiSetMarginFn    = fn; ret 0; ];
+rel cl RegisterUISetPadding:   [fn ptr] [ _uiSetPaddingFn   = fn; ret 0; ];
+rel cl RegisterFontLoad:       [fn ptr] [ _fontLoadFn       = fn; ret 0; ];
+rel cl RegisterFontGetDefault: [fn ptr] [ _fontGetDefaultFn = fn; ret 0; ];
+rel cl RegisterFontGetHeight:  [fn ptr] [ _fontGetHeightFn  = fn; ret 0; ];
+
+rel cl TextRender: [text string, x i32, y i32, font ptr, color i32] [
+    if (_textRenderFn == nullptr) [ ret -1; ];
+    ret <cstd***TextRenderCall***>(_textRenderFn, text, x, y, font, color);
 ];
 
-rel cl UefiSetVariable: [variableName String, vendorGuid String, attributes u32, dataSize u32, data ptr] [
-    if (_uefiSetVariableFn == nullptr) then [
-        log: "DrvAPIInterCon: UEFI set-variable function not registered.";
-        ret -1;
-    ];
-    let status i32 = (<cstd***int (*)(const char*, const char*, uint32_t, uint32_t, void*)***>_uefiSetVariableFn)(
-        variableName.c_str(), vendorGuid.c_str(), attributes, dataSize, data
-    );
-    if (status == 0) then [
-        log: "DrvAPIInterCon: UEFI variable '" + variableName + "' (guid=" + vendorGuid + ") set successfully";
-    ] else [
-        log: "DrvAPIInterCon: Failed to set UEFI variable '" + variableName + "' (guid=" + vendorGuid + ") (code " + status + ")";
-    ];
-    ret status;
+rel cl TextMeasureWidth: [text string, font ptr] [
+    if (_textMeasureWFn == nullptr) [ ret 0; ];
+    ret <cstd***TextMeasureWCall***>(_textMeasureWFn, text, font);
 ];
 
-rel cl UefiGetTime: [] [
-    if (_uefiGetTimeFn == nullptr) then [
-        log: "DrvAPIInterCon: UEFI get-time function not registered.";
-        let result array = [0; 0; 0; 0; 0; 0]; // [hour, min, sec, day, month, year]
-        ret result;
-    ];
-    // Dans une implémentation réelle, retournerait une structure efi_time
-    let timePtr ptr = stackalloc u8[sizeof(efi_time)]; // Taille supposée
-    let status i32 = (<cstd***int (*)(void*)***>_uefiGetTimeFn)(timePtr);
-    if (status == 0) then [
-        // Extraire les champs (simplifié)
-        let hour u8 = *<u8*>timePtr;
-        let min u8 = *<u8*>(timePtr + 1);
-        let sec u8 = *<u8*>(timePtr + 2);
-        let day u8 = *<u8*>(timePtr + 3);
-        let month u8 = *<u8*>(timePtr + 4);
-        let year u16 = *<u16*>(timePtr + 5);
-        let result array = [hour; min; sec; day; month; year];
-        log: "DrvAPIInterCon: UEFI time retrieved: " + year + "-" + month + "-" + day + " " + hour + ":" + min + ":" + sec;
-        ret result;
-    ] else [
-        log: "DrvAPIInterCon: Failed to get UEFI time (code " + status + ")";
-        let result array = [0; 0; 0; 0; 0; 0];
-        ret result;
-    ];
+rel cl TextMeasureHeight: [text string, font ptr] [
+    if (_textMeasureHFn == nullptr) [ ret 0; ];
+    ret <cstd***TextMeasureHCall***>(_textMeasureHFn, text, font);
 ];
 
-rel cl UefiSetTime: [hour u8, min u8, sec u8, day u8, month u8, year u16] [
-    if (_uefiSetTimeFn == nullptr) then [
-        log: "DrvAPIInterCon: UEFI set-time function not registered.";
-        ret -1;
-    ];
-    // Construire la structure efi_time (simplifié)
-    let timeBuf u8[6]; // Supposons 6 octets pour l'exemple
-    timeBuf[0] = hour;
-    timeBuf[1] = min;
-    timeBuf[2] = sec;
-    timeBuf[3] = day;
-    timeBuf[4] = month;
-    timeBuf[5] = (year & 0xFF);
-    timeBuf[6] = ((year >> 8) & 0xFF); // Si year est sur 2 octets
-    let status i32 = (<cstd***int (*)(void*)***>_uefiSetTimeFn)(timeBuf);
-    if (status == 0) then [
-        log: "DrvAPIInterCon: UEFI time set to " + year + "-" + month + "-" + day + " " + hour + ":" + min + ":" + sec;
-    ] else [
-        log: "DrvAPIInterCon: Failed to set UEFI time (code " + status + ")";
-    ];
-    ret status;
+rel cl UISetBgColor: [element ptr, color i32] [
+    if (_uiSetBgColorFn == nullptr) [ ret -1; ];
+    ret <cstd***UISetBgColorCall***>(_uiSetBgColorFn, element, color);
+];
+
+rel cl UISetTextColor: [element ptr, color i32] [
+    if (_uiSetTextColorFn == nullptr) [ ret -1; ];
+    ret <cstd***UISetTextColorCall***>(_uiSetTextColorFn, element, color);
+];
+
+rel cl UISetMargin: [element ptr, left i32, top i32, right i32, bottom i32] [
+    if (_uiSetMarginFn == nullptr) [ ret -1; ];
+    ret <cstd***UISetMarginCall***>(_uiSetMarginFn, element, left, top, right, bottom);
+];
+
+rel cl UISetPadding: [element ptr, left i32, top i32, right i32, bottom i32] [
+    if (_uiSetPaddingFn == nullptr) [ ret -1; ];
+    ret <cstd***UISetPaddingCall***>(_uiSetPaddingFn, element, left, top, right, bottom);
+];
+
+rel cl FontLoad: [path string] [
+    if (_fontLoadFn == nullptr) [ ret nullptr; ];
+    ret <cstd***FontLoadCall***>(_fontLoadFn, path);
+];
+
+rel cl FontGetDefault: [] [
+    if (_fontGetDefaultFn == nullptr) [ ret nullptr; ];
+    ret <cstd***FontGetDefaultCall***>(_fontGetDefaultFn);
+];
+
+rel cl FontGetHeight: [font ptr] [
+    if (_fontGetHeightFn == nullptr) [ ret 0; ];
+    ret <cstd***FontGetHeightCall***>(_fontGetHeightFn, font);
 ];

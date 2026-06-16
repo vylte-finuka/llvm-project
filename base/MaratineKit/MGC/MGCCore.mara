@@ -1,0 +1,168 @@
+//===================================================================
+//  MGCCore.mara – Maratine Graphical Compute — Core
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Noyau du moteur MGC. Init du pipeline GPU, resource manager
+//      centralisé, frame loop à budget temps fixe, gestion des
+//      contextes de rendu watch (454×454) et desktop (1920×1080).
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+
+let MGC_VERSION_MAJOR: <i32> = 1;
+let MGC_VERSION_MINOR: <i32> = 0;
+
+let MGC_MODE_WATCH:   <i32> = 0;
+let MGC_MODE_DESKTOP: <i32> = 1;
+
+let MGC_TARGET_FPS_WATCH:   <i32> = 60;
+let MGC_TARGET_FPS_DESKTOP: <i32> = 60;
+
+let MGC_MAX_RESOURCES:   <i32> = 4096;
+let MGC_MAX_CMD_BUFFERS: <i32> = 8;
+
+let MGC_OK:           <i32> = 0;
+let MGC_ERR_INIT:     <i32> = -1;
+let MGC_ERR_OOM:      <i32> = -2;
+let MGC_ERR_STATE:    <i32> = -3;
+let MGC_ERR_INVALID:  <i32> = -4;
+let MGC_ERR_OVERFLOW: <i32> = -5;
+
+var _initialized:    <i32>    = 0;
+var _mode:           <i32>    = MGC_MODE_WATCH;
+var _frameIndex:     <i32>    = 0;
+var _frameTimeMs:    <i32>    = 0;
+var _targetFps:      <i32>    = MGC_TARGET_FPS_WATCH;
+var _resCount:       <i32>    = 0;
+var _resHandles:     <array>  = [nullptr; MGC_MAX_RESOURCES];
+var _resTypes:       <array>  = [0;       MGC_MAX_RESOURCES];
+var _resNames:       <array>  = [null;    MGC_MAX_RESOURCES];
+var _cmdBufCount:    <i32>    = 0;
+var _gpuCtx:         <ptr>    = nullptr;
+var _totalFrameMs:   <i32>    = 0;
+
+// Détecte et configure le mode de rendu (privé)
+rel cl _detectMode: [] [
+    let dockState: <i32> = <DrvAPIInterCon***DockGetState***()>;
+    if (dockState != 0) [
+        _mode      = MGC_MODE_DESKTOP;
+        _targetFps = MGC_TARGET_FPS_DESKTOP;
+    ] else [
+        _mode      = MGC_MODE_WATCH;
+        _targetFps = MGC_TARGET_FPS_WATCH;
+    ];
+    ret _mode;
+];
+
+// Init – initialise MGC et le pipeline GPU
+rel op Init: [] [
+    if (_initialized != 0) [ ret MGC_OK; ];
+
+    let _: <i32> = _detectMode();
+
+    _gpuCtx = <DrvAPIInterCon***GpuCreateContext***()>;
+    if (_gpuCtx == nullptr) [ ret MGC_ERR_INIT; ];
+
+    let gpuResult: <i32> = <DrvAPIInterCon***GpuInit***()>;
+    if (gpuResult != 0) [
+        _gpuCtx = nullptr;
+        ret MGC_ERR_INIT;
+    ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuSetColorSpace***>("DCI-P3");
+    let _: <i32> = <DrvAPIInterCon***GpuSetHDR***>(1);
+
+    _initialized = 1;
+    _frameIndex  = 0;
+    log: "MGC: initialisé — mode " + _mode + " — cible " + _targetFps + " fps";
+    ret MGC_OK;
+];
+
+// BeginFrame – ouvre un nouveau command buffer pour la frame
+rel op BeginFrame: [] [
+    if (_initialized == 0) [ ret MGC_ERR_STATE; ];
+
+    _frameTimeMs = <MaratineKit***Time***NowMs***()>;
+    let cmdBuf: <ptr> = <DrvAPIInterCon***GpuCmdBegin***>(_gpuCtx);
+    if (cmdBuf == nullptr) [ ret MGC_ERR_OOM; ];
+
+    _cmdBufCount = _cmdBufCount + 1;
+    ret MGC_OK;
+];
+
+// EndFrame – soumet le command buffer et synchronise avec le GPU
+rel op EndFrame: [] [
+    if (_initialized == 0) [ ret MGC_ERR_STATE; ];
+
+    let result: <i32> = <DrvAPIInterCon***GpuCmdSubmit***>(_gpuCtx);
+    let _: <i32> = <DrvAPIInterCon***GpuFlushRenderContext***>(_gpuCtx);
+
+    let now: <i32> = <MaratineKit***Time***NowMs***()>;
+    let elapsed: <i32> = now - _frameTimeMs;
+    _totalFrameMs = _totalFrameMs + elapsed;
+    _frameIndex = _frameIndex + 1;
+
+    let budget: <i32> = 1000 / _targetFps;
+    if (elapsed < budget) [
+        let _: <i32> = <DrvAPIInterCon***SleepMs***>(budget - elapsed);
+    ];
+
+    _cmdBufCount = _cmdBufCount - 1;
+    ret result;
+];
+
+// AllocResource – enregistre un handle GPU dans le resource manager
+rel op AllocResource: [name string, handle ptr, resType i32] [
+    if (_resCount >= MGC_MAX_RESOURCES) [ ret MGC_ERR_OVERFLOW; ];
+    _resNames[_resCount]   = name;
+    _resHandles[_resCount] = handle;
+    _resTypes[_resCount]   = resType;
+    _resCount = _resCount + 1;
+    ret MGC_OK;
+];
+
+// GetResource – retrouve un handle par nom
+rel op GetResource: [name string] [
+    var i: <i32> = 0;
+    loop i < _resCount [
+        if (_resNames[i] == name) [ ret _resHandles[i]; ];
+        i = i + 1;
+    ];
+    ret nullptr;
+];
+
+// GetGpuCtx – retourne le contexte GPU courant
+rel op GetGpuCtx: [] [
+    ret _gpuCtx;
+];
+
+// GetMode – MGC_MODE_WATCH ou MGC_MODE_DESKTOP
+rel op GetMode: [] [
+    ret _mode;
+];
+
+// GetFrameIndex – numéro de frame courant
+rel op GetFrameIndex: [] [
+    ret _frameIndex;
+];
+
+// GetAvgFrameMs – temps moyen par frame en ms
+rel op GetAvgFrameMs: [] [
+    if (_frameIndex == 0) [ ret 0; ];
+    ret _totalFrameMs / _frameIndex;
+];
+
+// Shutdown – libère toutes les ressources GPU
+rel op Shutdown: [] [
+    if (_initialized == 0) [ ret MGC_OK; ];
+    let _: <i32> = <DrvAPIInterCon***GpuShutdown***()>;
+    _initialized = 0;
+    _resCount    = 0;
+    _frameIndex  = 0;
+    _gpuCtx      = nullptr;
+    log: "MGC: shutdown OK";
+    ret MGC_OK;
+];

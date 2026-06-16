@@ -1,298 +1,112 @@
 //===================================================================
 //  DrvManSpec.mara – Driver Manager Specification
-//  Projet : MaratineProjectAppTemplate.marep
+//  Module : base/std/ComTpe/SlulFrmt
 //  Auteur : Vyft Ltd
-//  Licence : Propriétaire – 2026
+//  Licence : Proprietary – 2026
 //  Description :
-//      Gère le chargement, l’initialisation et la supervision
-//      des pilotes matériels (GPU, CPU, périphériques).  Il
-//      utilise l’API exposée par DrvAPIInterCon, applique les
-//      contrôles de MathSafety et vérifie les accès via
-//      PAccessAuth.
-//      Cette version utilise les fonctions réelles dlopen/dlsym
-//      pour charger les bibliothèques de pilotes et OpenSSL pour
-//      vérifier une signature de certificat associée au pilote.
+//      Gère le chargement, la vérification d'intégrité et l'initialisation
+//      des pilotes matériels via DrvAPIInterCon. Applique les contrôles
+//      de MathSafety et vérifie les accès via PAccessAuth.
 //===================================================================
 
 #base <MaratineKit>;
-#base <DrvAPIInterCon>;
-#base <MathSafety>;
-#base <PAccessAuth>;
-#include <cstddef>
-#include <dlfcn.h>          // dlopen, dlsym, dlerror
-#include <stdio.h>          // FILE, fopen, fread, fclose
-#include <stdlib.h>         // free
-#include <openssl/x509.h>   // X509, PEM_read_X509
-#include <openssl/pem.h>    // PEM_read_bio_X509_AUX
-#include <openssl/err.h>    // ERR_get_error
-#include <openssl/evp.h>    // EVP_DigestVerifyInit, etc.
+#base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
+#base <std***ComTpe***SlulFrmt***MathSafety>;
+#base <std***core***self***RegistrationRoot***[ PAccessAuth ]>;
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
-// -----------------------------------------------------------------
-// Charge un module de pilote (shared object) par son nom de fichier.
-// Retourne un pointeur opaque vers le handle du module, ou nullptr
-// en cas d'échec.
-// -----------------------------------------------------------------
-rel cl LoadDriver: [driverPath String] [
-    log: "Loading driver from: " + driverPath;
-    // Convert Maratine String to C‑string (implicit via extern call)
-    let handle ptr = dlopen(driverPath.c_str(), RTLD_NOW);
-    if (handle == nullptr) then [
-        let err ptr = dlerror();
-        let errMsg String = if (err == nullptr) then "unknown error" else err;
-        log: "dlopen failed: " + errMsg;
+using namespace llvm;
+
+let DRV_OK:           <i32> = 0;
+let DRV_ERR_LOAD:     <i32> = -1;
+let DRV_ERR_INIT:     <i32> = -2;
+let DRV_ERR_CERT:     <i32> = -3;
+let DRV_ERR_SIG:      <i32> = -4;
+let DRV_ERR_ACCESS:   <i32> = -5;
+let DRV_ERR_INVALID:  <i32> = -6;
+let DRV_ERR_NOT_FOUND:<i32> = -7;
+
+// LoadDriver – charge un pilote par son chemin
+rel cl LoadDriver: [driverPath string] [
+    if (driverPath == "" || driverPath == null) [
+        errs() << "DrvManSpec: chemin vide\n";
         ret nullptr;
-    ] else [
-        log: "Driver loaded successfully, handle = " + handle;
-        ret handle;
     ];
-};
 
-// -----------------------------------------------------------------
-// Initialise un pilote chargé en résolvant et en appelant ses
-// fonctions d’initialisation (ex. GpuInit).  Retourne 0 en cas de
-// succès, -1 sinon.
-// -----------------------------------------------------------------
+    if (!sys::fs::exists(driverPath)) [
+        log: "DrvManSpec: pilote introuvable – " + driverPath;
+        ret nullptr;
+    ];
+
+    let handle: <ptr> = <DrvAPIInterCon***InstanceStart***>(driverPath);
+    if (handle == nullptr) [
+        log: "DrvManSpec: LoadDriver échoué – " + driverPath;
+        ret nullptr;
+    ];
+
+    log: "DrvManSpec: pilote chargé – " + driverPath;
+    ret handle;
+];
+
+// InitDriver – initialise un pilote chargé (GPU ou générique)
 rel cl InitDriver: [handle ptr] [
-    log: "Initialising driver via API";
-    if (handle == nullptr) then [
-        log: "InitDriver called with null handle.";
-        ret -1;
-    ];
-    // Try to resolve GpuInit
-    let gpuInitFn ptr = (void (*)())dlsym(handle, "GpuInit");
-    let symErr ptr = dlerror();
-    if (symErr != nullptr) then [
-        log: "Failed to find symbol GpuInit: " + symErr;
-        // Maybe the driver does not expose GpuInit; try a generic init
-        let genericInitFn ptr = (void (*)())dlsym(handle, "driver_init");
-        let symErr2 ptr = dlerror();
-        if (symErr2 != nullptr) then [
-            log: "Failed to find generic init symbol either: " + symErr2;
-            ret -1;
-        ] else [
-            log: "Found generic init symbol driver_init.";
-            genericInitFn();
-            ret 0;
-        ];
-    ] else [
-        log: "Found GpuInit symbol.";
-        gpuInitFn();
-        ret 0;
-    ];
-};
-
-// -----------------------------------------------------------------
-// Effectue un dessin de pixel sûr en utilisant l’arithmétique
-// saturée de MathSafety pour éviter les débordements.
-// -----------------------------------------------------------------
-rel cl SafeDrawPixel: [rawX i32, rawY i32, color u32] [
-    // Clamp coordinates to the valid range [0, 4095]
-    let clampedX i32;
-    if (rawX < 0) then [
-        clampedX = 0;
-    ] else if (rawX > 4095) then [
-        clampedX = 4095;
-    ] else [
-        clampedX = rawX;
-    ];
-    let clampedY i32;
-    if (rawY < 0) then [
-        clampedY = 0;
-    ] else if (rawY > 4095) then [
-        clampedY = 4095;
-    ] else [
-        clampedY = rawY;
-    ];
-    log: "SafeDrawPixel -> (" + clampedX + ", " + clampedY + ") colour 0x" + color;
-    // Call the GPU API exposed by DrvAPIInterCon
-    let _ = GpuDrawPixel(clampedX, clampedY, color);
-    ret 0;
-};
-
-// -----------------------------------------------------------------
-// Vérifie l’intégrité du pilote avant utilisation.
-// Cette fonction :
-//   1. Vérifie que le fichier existe et n’est pas vide.
-//   2. Calcule son empreinte SHA‑256.
-//   3. Charge le certificat associé (<driverPath>.crt) et vérifie
-//      la signature contenue dans <driverPath>.sig.
-//   4. Enregistre l’accès via PAccessAuth.LogAccess.
-// Retourne 0 si tout est valide, -1 en cas d’erreur.
-// -----------------------------------------------------------------
-rel cl VerifyDriverIntegrity: [driverPath String, certPath String] [
-    log: "Verifying integrity of driver at: " + driverPath;
-    // 1. Basic file existence & size check
-    let f ptr = fopen(driverPath.c_str(), "rb");
-    if (f == nullptr) then [
-        log: "Failed to open driver file.";
-        ret -1;
-    ];
-    fseek(f, 0, SEEK_END);
-    let size i64 = ftell(f);
-    fclose(f);
-    if (size == 0) then [
-        log: "Driver file is empty.";
-        ret -1;
+    if (handle == nullptr) [
+        log: "DrvManSpec: InitDriver – handle null";
+        ret DRV_ERR_INVALID;
     ];
 
-    // 2. Compute SHA‑256 of the driver file
-    let hash u8[EVP_MAX_MD_SIZE];   // array of bytes
-    let hashLen u32 = 0;
-    let mdctx ptr = EVP_MD_CTX_new();
-    if (mdctx == nullptr) then [
-        log: "Failed to create EVP_MD_CTX.";
-        ret -1;
-    ];
-    if (1 != EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr)) then [
-        log: "EVP_DigestInit_ex failed.";
-        EVP_MD_CTX_free(mdctx);
-        ret -1;
-    ];
-    let f2 ptr = fopen(driverPath.c_str(), "rb");
-    if (f2 == nullptr) then [
-        log: "Failed to reopen driver file for hashing.";
-        EVP_MD_CTX_free(mdctx);
-        ret -1;
-    ];
-    let bufSize u32 = 4096;
-    let buffer ptr = malloc(bufSize);
-    if (buffer == nullptr) then [
-        log: "Failed to allocate hash buffer.";
-        fclose(f2);
-        EVP_MD_CTX_free(mdctx);
-        ret -1;
-    ];
-    let bytes u64 = 0;
-    loop (true) then [
-        let read u64 = fread(buffer, 1, bufSize, f2);
-        if (read == 0) then [
-            break;
-        ];
-        if (1 != EVP_DigestUpdate(mdctx, buffer, read)) then [
-            log: "EVP_DigestUpdate failed.";
-            free(buffer);
-            fclose(f2);
-            EVP_MD_CTX_free(mdctx);
-            ret -1;
-        ];
-        bytes = bytes + read;
-    ];
-    free(buffer);
-    fclose(f2);
-    if (1 != EVP_DigestFinal_ex(mdctx, hash, &hashLen)) then [
-        log: "EVP_DigestFinal_ex failed.";
-        EVP_MD_CTX_free(mdctx);
-        ret -1;
-    ];
-    EVP_MD_CTX_free(mdctx);
-    // (hash now contains the SHA‑256 digest)
-
-    // 3. Load the certificate and verify the signature
-    //    Expect a file <driverPath>.crt containing the public cert
-    //    and a file <driverPath>.sig containing the raw signature.
-    let certFile String = certPath; // caller supplies the cert path
-    let sigFile String = driverPath + ".sig";
-
-    let certF ptr = fopen(certFile.c_str(), "r");
-    if (certF == nullptr) then [
-        log: "Failed to open certificate file: " + certFile;
-        ret -1;
-    ];
-    let cert ptr = PEM_read_X509(certF, nullptr, nullptr, nullptr);
-    fclose(certF);
-    if (cert == nullptr) then [
-        log: "Failed to parse certificate.";
-        ret -1;
-    ];
-    let pubKey ptr = X509_get_pubkey(cert);
-    X509_free(cert);
-    if (pubKey == nullptr) then [
-        log: "Failed to extract public key from certificate.";
-        ret -1;
+    let gpuResult: <i32> = <DrvAPIInterCon***GpuInit***()>;
+    if (gpuResult != 0) [
+        log: "DrvManSpec: GpuInit échoué – code " + gpuResult;
+        ret DRV_ERR_INIT;
     ];
 
-    let sigF ptr = fopen(sigFile.c_str(), "rb");
-    if (sigF == nullptr) then [
-        log: "Failed to open signature file: " + sigFile;
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    fseek(sigF, 0, SEEK_END);
-    let sigSize i64 = ftell(sigF);
-    fseek(sigF, 0, SEEK_SET);
-    let sigBuf ptr = malloc(sigSize);
-    if (sigBuf == nullptr) then [
-        log: "Failed to allocate signature buffer.";
-        fclose(sigF);
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    if (fread(sigBuf, 1, sigSize, sigF) != sigSize) then [
-        log: "Failed to read signature file.";
-        free(sigBuf);
-        fclose(sigF);
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    fclose(sigF);
+    log: "DrvManSpec: pilote initialisé";
+    ret DRV_OK;
+];
 
-    let mdctx2 ptr = EVP_MD_CTX_new();
-    if (mdctx2 == nullptr) then [
-        log: "Failed to create EVP_MD_CTX for verification.";
-        free(sigBuf);
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    if (1 != EVP_DigestVerifyInit(mdctx2, nullptr, EVP_sha256(), nullptr, pubKey)) then [
-        log: "EVP_DigestVerifyInit failed.";
-        EVP_MD_CTX_free(mdctx2);
-        free(sigBuf);
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    // Re‑hash the driver file for verification
-    let f3 ptr = fopen(driverPath.c_str(), "rb");
-    if (f3 == nullptr) then [
-        log: "Failed to reopen driver file for verification.";
-        EVP_MD_CTX_free(mdctx2);
-        free(sigBuf);
-        EVP_PKEY_free(pubKey);
-        ret -1;
-    ];
-    loop (true) then [
-        let read u64 = fread(buffer, 1, bufSize, f3);
-        if (read == 0) then [
-            break;
-        ];
-        if (1 != EVP_DigestUpdate(mdctx2, buffer, read)) then [
-            log: "EVP_DigestUpdate (verify) failed.";
-            free(buffer);
-            fclose(f3);
-            EVP_MD_CTX_free(mdctx2);
-            free(sigBuf);
-            EVP_PKEY_free(pubKey);
-            ret -1;
-        ];
-    ];
-    free(buffer);
-    fclose(f3);
-    let verifyResult i32 = EVP_DigestVerify(mdctx2, sigBuf, sigSize, hash, hashLen);
-    EVP_MD_CTX_free(mdctx2);
-    free(sigBuf);
-    EVP_PKEY_free(pubKey);
-    if (verifyResult != 1) then [
-        log: "Signature verification failed.";
-        ret -1;
-    ];
-    log: "Signature verification succeeded.";
+// SafeDrawPixel – dessin sécurisé avec coordonnées plafonnées
+rel cl SafeDrawPixel: [rawX i32, rawY i32, color i32] [
+    let clampedX: <i32> = <MathSafety***ClampI32***>(rawX, 0, 4095);
+    let clampedY: <i32> = <MathSafety***ClampI32***>(rawY, 0, 4095);
 
-    // 4. Log the access attempt via PAccessAuth
-    let granted bool = PAccessAuth.LogAccess("DriverVerifier", driverPath, true);
-    if (granted == false) then [
-        log: "Driver access denied by PAccessAuth after verification.";
-        ret -1;
+    log: "DrvManSpec: SafeDrawPixel (" + clampedX + ", " + clampedY + ")";
+    let result: <i32> = <DrvAPIInterCon***GpuDrawPixel***>(clampedX, clampedY, color);
+    ret result;
+];
+
+// VerifyDriverIntegrity – vérifie l'intégrité d'un pilote via certificat
+rel cl VerifyDriverIntegrity: [driverPath string, certPath string] [
+    if (driverPath == "" || driverPath == null) [ ret DRV_ERR_INVALID; ];
+    if (certPath == ""   || certPath == null)   [ ret DRV_ERR_INVALID; ];
+
+    if (!sys::fs::exists(driverPath)) [
+        log: "DrvManSpec: pilote introuvable – " + driverPath;
+        ret DRV_ERR_NOT_FOUND;
+    ];
+    if (!sys::fs::exists(certPath)) [
+        log: "DrvManSpec: certificat introuvable – " + certPath;
+        ret DRV_ERR_CERT;
     ];
 
-    log: "Driver integrity check passed.";
-    ret 0;
+    let cert: <ptr> = <DrvAPIInterCon***CertLoadFromFile***>(certPath);
+    if (cert == nullptr) [
+        log: "DrvManSpec: chargement certificat échoué – " + certPath;
+        ret DRV_ERR_CERT;
+    ];
+
+    let chainResult: <i32> = <DrvAPIInterCon***CertVerifyChain***>(cert);
+    if (chainResult != 0) [
+        log: "DrvManSpec: chaîne de confiance invalide – code " + chainResult;
+        ret DRV_ERR_SIG;
+    ];
+
+    if (!<PAccessAuth***IsAuthorized***>(1)) [
+        log: "DrvManSpec: accès refusé par PAccessAuth";
+        ret DRV_ERR_ACCESS;
+    ];
+
+    log: "DrvManSpec: intégrité validée – " + driverPath;
+    ret DRV_OK;
 ];

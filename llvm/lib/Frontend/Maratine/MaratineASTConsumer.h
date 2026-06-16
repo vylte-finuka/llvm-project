@@ -1,8 +1,6 @@
-//===--- MaratineASTConsumer.h - AST Consumer for Maratine ------*- C++ -*-===//
+//===--- MaratineASTConsumer.h - AST Consumer for Mara/Maratine ---------===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
 //
 //===----------------------------------------------------------------------===//
 
@@ -10,27 +8,29 @@
 #define LLVM_FRONTEND_MARATINE_MARATINEASTCONSUMER_H
 
 #include "clang/AST/ASTConsumer.h"
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/CodeGen/CodeGenAction.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include <memory>
 
 namespace clang {
 namespace maratine {
 
+// Walks the Maratine AST and delegates code-generation to Clang's
+// standard EmitLLVMOnlyAction consumer.
 class MaratineASTConsumer : public ASTConsumer {
 public:
-  explicit MaratineASTConsumer(CompilerInstance &CI)
-    : Consumer(llvm::make_unique<EmitLLVMOnlyAction>(CI.getDiagnostics())) {}
+  explicit MaratineASTConsumer(CompilerInstance &CI);
 
   bool HandleTopLevelDecl(DeclGroupRef DG) override {
-    return Consumer->HandleTopLevelDecl(DG);
+    return Inner->HandleTopLevelDecl(DG);
   }
 
   void HandleTranslationUnit(ASTContext &Ctx) override {
-    Consumer->HandleTranslationUnit(Ctx);
+    Inner->HandleTranslationUnit(Ctx);
   }
 
 private:
-  std::unique_ptr<FrontendAction> Consumer;
+  std::unique_ptr<ASTConsumer> Inner;
 };
 
 } // namespace maratine

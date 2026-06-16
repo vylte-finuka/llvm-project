@@ -1,8 +1,11 @@
-// Vyft Ltd - Maratine Compiler Driver
-// Compilateur principal pour le langage Maratine
+// Vyft Ltd — Maratine Compiler Driver — Proprietary — 2026
+//
+// maratine-cc: compiles *.mara source files to *.ovc (Vyft Compiled Output),
+// LLVM IR (*.ll), or assembly (*.s) targeting Slura OS on ARM64.
 
 #include "MaratineLexer.h"
 #include "MaratineParser.h"
+#include "MaratineSema.h"
 #include "MaratineCodeGen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -12,25 +15,25 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/Target/TargetMachine.h"
-#include <iostream>
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 using namespace llvm::maratine;
 
 static cl::opt<std::string> InputFile(
     cl::Positional,
-    cl::desc("<input maratine file (.mart)>"),
+    cl::desc("<input .mara file>"),
     cl::Required);
 
 static cl::opt<std::string> OutputFile(
     "o",
-    cl::desc("Output filename (*.ovc, *.ll, *.o)"),
+    cl::desc("Output filename (*.ovc, *.ll, *.s)"),
     cl::value_desc("filename"));
 
 static cl::opt<std::string> OutputFormat(
     "emit",
     cl::init("ovc"),
-    cl::desc("Output format: ovc (app), llvm, obj, asm"),
+    cl::desc("Output format: ovc (app), llvm (LLVM IR), asm"),
     cl::value_desc("format"));
 
 static cl::opt<bool> DumpAST(
@@ -43,119 +46,110 @@ static cl::opt<bool> DumpTokens(
 
 static cl::opt<bool> Optimize(
     "O",
-    cl::desc("Enable optimizations"));
+    cl::desc("Enable O2 optimizations"));
 
 int main(int argc, char **argv) {
-  cl::ParseCommandLineOptions(argc, argv, "Maratine Compiler\n");
+  cl::ParseCommandLineOptions(argc, argv,
+      "Maratine Compiler — Slura OS / ARM64 target\n");
 
-  // Lire le fichier source (.mart)
-  auto BufferOrError = MemoryBuffer::getFile(InputFile);
-  if (!BufferOrError) {
-    errs() << "Error reading .mart file: " << BufferOrError.getError().message()
-           << "\n";
+  auto BufferOrErr = MemoryBuffer::getFile(InputFile);
+  if (!BufferOrErr) {
+    errs() << "Error reading source file: "
+           << BufferOrErr.getError().message() << "\n";
     return 1;
   }
 
-  StringRef SourceCode = BufferOrError.get()->getBuffer();
-  errs() << "=== Maratine Compiler (*.mart) ===\n";
-  errs() << "Source file: " << InputFile << "\n";
-  errs() << "Lines: " << SourceCode.count('\n') << "\n\n";
+  StringRef Source = BufferOrErr.get()->getBuffer();
+  errs() << "=== maratine-cc ===\n";
+  errs() << "Source: " << InputFile << "  (" << Source.count('\n') << " lines)\n\n";
 
-  // --- LEXICAL ANALYSIS ---
-  errs() << "[1/4] Lexical Analysis...\n";
-  Lexer L(SourceCode);
+  // --- 1. Lexical analysis ---
+  errs() << "[1/4] Lexical analysis...\n";
+  Lexer L(Source);
   auto Tokens = L.tokenize();
 
   if (DumpTokens) {
-    errs() << "Tokens: " << Tokens.size() << "\n";
-    for (const auto &T : Tokens) {
-      errs() << "  Token: " << (int)T.Kind << " = " << T.Value << "\n";
-    }
+    errs() << Tokens.size() << " tokens:\n";
+    for (const auto &T : Tokens)
+      errs() << "  [" << T.Line << ":" << T.Column << "] "
+             << (int)T.Kind << " = " << T.Value << "\n";
   }
 
-  // --- PARSING ---
+  // --- 2. Parsing ---
   errs() << "[2/4] Parsing...\n";
   Parser P(Tokens);
-  auto ModuleOrError = P.parseModule();
-
-  if (!ModuleOrError) {
-    errs() << "Parse error: " << toString(ModuleOrError.takeError()) << "\n";
+  auto ModOrErr = P.parseModule();
+  if (!ModOrErr) {
+    errs() << "Parse error: " << toString(ModOrErr.takeError()) << "\n";
     return 1;
   }
+  auto &Mod = *ModOrErr;
 
-  auto Module = std::move(*ModuleOrError);
+  if (DumpAST)
+    P.printAST(*Mod);
 
-  if (DumpAST) {
-    errs() << "AST:\n";
-    P.printAST(*Module);
+  // --- 3. Semantic analysis ---
+  errs() << "[3/4] Semantic analysis...\n";
+  Sema S;
+  if (auto Err = S.analyse(*Mod)) {
+    errs() << "Semantic error:\n" << toString(std::move(Err)) << "\n";
+    return 1;
   }
+  if (!S.diagnostics().empty())
+    S.printDiagnostics(errs());
 
-  // --- CODE GENERATION ---
-  errs() << "[3/4] Code Generation...\n";
+  // --- 4. Code generation ---
+  errs() << "[4/5] Code generation (ARM64)...\n";
   CodeGenerator CG("maratine_module");
-
-  auto ModuleOrGenError = CG.codegenModule(Module.get());
-  if (!ModuleOrGenError) {
-    errs() << "Code generation error: "
-           << toString(ModuleOrGenError.takeError()) << "\n";
+  auto LLVMModOrErr = CG.codegenModule(Mod.get());
+  if (!LLVMModOrErr) {
+    errs() << "Codegen error: " << toString(LLVMModOrErr.takeError()) << "\n";
     return 1;
   }
+  auto LLVMMod = std::move(*LLVMModOrErr);
 
-  auto LLVMModule = std::move(*ModuleOrGenError);
-
-  // --- OPTIMIZATION ---
+  // --- 5. Optimization ---
   if (Optimize) {
-    errs() << "[4/4] Optimization...\n";
+    errs() << "[5/5] Optimization (O2)...\n";
     CG.optimize();
   } else {
-    errs() << "[4/4] Skipping optimization (use -O to enable)\n";
+    errs() << "[5/5] Skipping optimization (pass -O to enable)\n";
   }
 
-  // --- OUTPUT ---
-  errs() << "Generating output...\n";
-
+  // --- Output ---
   std::string OutFile = OutputFile;
   if (OutFile.empty()) {
-    size_t DotPos = InputFile.rfind('.');
-    if (OutputFormat == "ovc") {
-      OutFile = InputFile.substr(0, DotPos) + ".ovc";
-    } else if (OutputFormat == "llvm") {
-      OutFile = InputFile.substr(0, DotPos) + ".ll";
-    } else {
-      OutFile = InputFile.substr(0, DotPos) + ".out";
-    }
+    StringRef Base = StringRef(InputFile).rsplit('.').first;
+    if (OutputFormat == "ovc")
+      OutFile = (Base + ".ovc").str();
+    else if (OutputFormat == "llvm")
+      OutFile = (Base + ".ll").str();
+    else
+      OutFile = (Base + ".s").str();
   }
 
   std::error_code EC;
-  tool_output_file OutStream(OutFile, EC, sys::fs::OF_None);
-
+  ToolOutputFile Out(OutFile, EC, sys::fs::OF_None);
   if (EC) {
-    errs() << "Cannot open output file: " << EC.message() << "\n";
+    errs() << "Cannot open output: " << EC.message() << "\n";
     return 1;
   }
 
   if (OutputFormat == "ovc") {
-    // Générer fichier .ovc (Vyft Compiled Output)
-    OutStream.os() << "# Vyft OVC Format v1.0\n";
-    OutStream.os() << "# Maratine Compiled Application\n";
-    OutStream.os() << "# Target: Slura OS\n\n";
-    LLVMModule->print(OutStream.os(), nullptr);
+    Out.os() << "# Vyft OVC v1.0 — Maratine Compiled Application\n";
+    Out.os() << "# Target: Slura OS / ARM64\n\n";
+    LLVMMod->print(Out.os(), nullptr);
   } else if (OutputFormat == "llvm") {
-    LLVMModule->print(OutStream.os(), nullptr);
+    LLVMMod->print(Out.os(), nullptr);
   } else if (OutputFormat == "asm") {
-    // TODO: Générer assembly
-    errs() << "ASM output not yet implemented\n";
+    errs() << "ASM output: not yet implemented\n";
     return 1;
-  } else if (OutputFormat == "obj") {
-    // TODO: Générer objet
-    errs() << "Object output not yet implemented\n";
+  } else {
+    errs() << "Unknown output format: " << OutputFormat << "\n";
     return 1;
   }
 
-  OutStream.keep();
-
-  errs() << "✓ Compilation successful!\n";
-  errs() << "Output: " << OutFile << "\n";
-
+  Out.keep();
+  errs() << "Compilation successful: " << OutFile << "\n";
   return 0;
 }

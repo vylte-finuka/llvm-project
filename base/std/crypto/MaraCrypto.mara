@@ -1,0 +1,174 @@
+//===================================================================
+//  MaraCrypto.mara – Cryptography Module
+//  Module : base/std/crypto
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Module de cryptographie product-grade pour Slura/Lunée.
+//      AES-256-GCM, SHA-256, HMAC-SHA256, ECDSA P-256.
+//      Génération de clés via TRNG hardware.
+//      Stockage sécurisé des clés via KeyReg + zone SECURE.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <std***core***self***RegistrationRoot***[ KeyReg ]>;
+
+let ALGO_AES256GCM:  <string> = "AES-256-GCM";
+let ALGO_SHA256:     <string> = "SHA-256";
+let ALGO_HMACSHA256: <string> = "HMAC-SHA256";
+let ALGO_ECDSA_P256: <string> = "ECDSA-P256";
+
+let KEY_SIZE_AES256:  <i32> = 32;
+let KEY_SIZE_ECDSA:   <i32> = 64;
+let IV_SIZE_AES_GCM:  <i32> = 12;
+let TAG_SIZE_GCM:     <i32> = 16;
+let HASH_SIZE_SHA256: <i32> = 32;
+
+let CRYPTO_OK:          <i32> = 0;
+let CRYPTO_ERR_KEY:     <i32> = -1;
+let CRYPTO_ERR_IV:      <i32> = -2;
+let CRYPTO_ERR_DATA:    <i32> = -3;
+let CRYPTO_ERR_TAG:     <i32> = -4;
+let CRYPTO_ERR_MEM:     <i32> = -5;
+let CRYPTO_ERR_VERIFY:  <i32> = -6;
+
+// GenerateKey – génère une clé via TRNG et l'enregistre dans KeyReg
+rel op GenerateKey: [name string, algo string] [
+    if (name == "" || name == null) [ ret CRYPTO_ERR_KEY; ];
+    if (algo == "" || algo == null) [ ret CRYPTO_ERR_KEY; ];
+
+    var keySize: <i32> = 0;
+    if (algo == ALGO_AES256GCM)  [ keySize = KEY_SIZE_AES256; ];
+    if (algo == ALGO_ECDSA_P256) [ keySize = KEY_SIZE_ECDSA;  ];
+    if (algo == ALGO_HMACSHA256) [ keySize = KEY_SIZE_AES256; ];
+    if (keySize == 0) [ ret CRYPTO_ERR_KEY; ];
+
+    let keyBuf: <ptr> = <MaraMem***AllocSecure***>(keySize);
+    if (keyBuf == nullptr) [ ret CRYPTO_ERR_MEM; ];
+
+    let result: <i32> = <DrvAPIInterCon***CryptoTRNGFill***>(keyBuf, keySize);
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Free***>(keyBuf, 4);
+        ret CRYPTO_ERR_KEY;
+    ];
+
+    let regResult: <i32> = <KeyReg***AddKey***>(name, keyBuf, algo);
+    if (regResult != 0) [
+        let _: <i32> = <MaraMem***Zero***>(keyBuf, keySize);
+        let _: <i32> = <MaraMem***Free***>(keyBuf, 4);
+        ret regResult;
+    ];
+
+    ret CRYPTO_OK;
+];
+
+// Encrypt – chiffrement AES-256-GCM, retourne le ciphertext+tag
+rel op Encrypt: [keyName string, plaintext ptr, size i32] [
+    if (plaintext == nullptr || size <= 0) [ ret nullptr; ];
+
+    let keyPtr: <ptr> = <KeyReg***GetKey***>(keyName);
+    if (keyPtr == nullptr) [ ret nullptr; ];
+
+    let ivBuf: <ptr> = <MaraMem***AllocSecure***>(IV_SIZE_AES_GCM);
+    if (ivBuf == nullptr) [ ret nullptr; ];
+    let _: <i32> = <DrvAPIInterCon***CryptoTRNGFill***>(ivBuf, IV_SIZE_AES_GCM);
+
+    let outSize: <i32> = IV_SIZE_AES_GCM + size + TAG_SIZE_GCM;
+    let outBuf: <ptr> = <MaraMem***AllocHeap***>(outSize);
+    if (outBuf == nullptr) [
+        let _: <i32> = <MaraMem***Free***>(ivBuf, 4);
+        ret nullptr;
+    ];
+
+    let result: <i32> = <DrvAPIInterCon***CryptoAES256GCMEncrypt***>(
+        keyPtr, ivBuf, plaintext, size, outBuf
+    );
+
+    let _: <i32> = <MaraMem***Zero***>(ivBuf, IV_SIZE_AES_GCM);
+    let _: <i32> = <MaraMem***Free***>(ivBuf, 4);
+
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Free***>(outBuf, 0);
+        ret nullptr;
+    ];
+
+    ret outBuf;
+];
+
+// Decrypt – déchiffrement AES-256-GCM avec vérification du tag
+rel op Decrypt: [keyName string, ciphertext ptr, size i32] [
+    if (ciphertext == nullptr || size <= IV_SIZE_AES_GCM + TAG_SIZE_GCM) [ ret nullptr; ];
+
+    let keyPtr: <ptr> = <KeyReg***GetKey***>(keyName);
+    if (keyPtr == nullptr) [ ret nullptr; ];
+
+    let plainSize: <i32> = size - IV_SIZE_AES_GCM - TAG_SIZE_GCM;
+    let outBuf: <ptr> = <MaraMem***AllocHeap***>(plainSize);
+    if (outBuf == nullptr) [ ret nullptr; ];
+
+    let result: <i32> = <DrvAPIInterCon***CryptoAES256GCMDecrypt***>(
+        keyPtr, ciphertext, size, outBuf
+    );
+
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Zero***>(outBuf, plainSize);
+        let _: <i32> = <MaraMem***Free***>(outBuf, 0);
+        ret nullptr;
+    ];
+
+    ret outBuf;
+];
+
+// Hash – SHA-256 d'un buffer
+rel op Hash: [data ptr, size i32] [
+    if (data == nullptr || size <= 0) [ ret nullptr; ];
+
+    let hashBuf: <ptr> = <MaraMem***AllocHeap***>(HASH_SIZE_SHA256);
+    if (hashBuf == nullptr) [ ret nullptr; ];
+
+    let result: <i32> = <DrvAPIInterCon***CryptoSHA256***>(data, size, hashBuf);
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Free***>(hashBuf, 0);
+        ret nullptr;
+    ];
+
+    ret hashBuf;
+];
+
+// HMAC – HMAC-SHA256 signé par une clé du registre
+rel op HMAC: [keyName string, data ptr, size i32] [
+    let keyPtr: <ptr> = <KeyReg***GetKey***>(keyName);
+    if (keyPtr == nullptr) [ ret nullptr; ];
+    if (data == nullptr || size <= 0) [ ret nullptr; ];
+
+    let hmacBuf: <ptr> = <MaraMem***AllocHeap***>(HASH_SIZE_SHA256);
+    if (hmacBuf == nullptr) [ ret nullptr; ];
+
+    let result: <i32> = <DrvAPIInterCon***CryptoHMACSHA256***>(keyPtr, data, size, hmacBuf);
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Free***>(hmacBuf, 0);
+        ret nullptr;
+    ];
+
+    ret hmacBuf;
+];
+
+// RandomBytes – génère n octets aléatoires via TRNG
+rel op RandomBytes: [n i32] [
+    if (n <= 0 || n > 4096) [ ret nullptr; ];
+    let buf: <ptr> = <MaraMem***AllocHeap***>(n);
+    if (buf == nullptr) [ ret nullptr; ];
+    let result: <i32> = <DrvAPIInterCon***CryptoTRNGFill***>(buf, n);
+    if (result != 0) [
+        let _: <i32> = <MaraMem***Free***>(buf, 0);
+        ret nullptr;
+    ];
+    ret buf;
+];
+
+// DestroyKey – révoque et supprime une clé du registre
+rel op DestroyKey: [name string] [
+    let _: <i32> = <KeyReg***RevokeKey***>(name);
+    ret <KeyReg***RemoveKey***>(name);
+];

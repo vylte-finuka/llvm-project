@@ -1,25 +1,27 @@
 //===--- MaratinePlugin.cpp - Plugin registration for Maratine frontend --===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
 //
 //===----------------------------------------------------------------------===//
 
 #include "MaratineFrontendAction.h"
 #include "clang/Frontend/PluginRegistry.h"
-#include "clang/Frontend/FrontendRegistry.h"
+#include "llvm/Passes/PassPlugin.h"
+#include "llvm/IR/PassManager.h"
 
 using namespace clang;
+using namespace llvm;
 
-static FrontendPluginRegistry::Add<MaratineFrontendAction>
-X("maratine-frontend", "Maratine language frontend");
+// Register the Maratine frontend action with clang's plugin registry.
+static FrontendPluginRegistry::Add<maratine::MaratineFrontendAction>
+    X("maratine-frontend", "Mara/Maratine language frontend for Slura OS");
 
-static bool
-RegisterMaratinePass(const PassName &, const StringRef &,
-                     const PassRegistrationListenerType &) {
-  return true;
+// Provide an LLVM pass plugin entry point.
+// New pass manager API — no PassManagerBuilder dependency.
+extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
+llvmGetPassPluginInfo() {
+  return {
+    LLVM_PLUGIN_API_VERSION, "MaratineFrontend", "1.0",
+    [](PassBuilder &) {}
+  };
 }
-static llvm::RegisterStandardPasses
-Y(PassManagerBuilder::EP_EarlyAsPossible,
-  RegisterMaratinePass);

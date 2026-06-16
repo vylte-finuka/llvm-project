@@ -1060,6 +1060,46 @@ ANNOTATION(repl_input_end)
 // Annotation for #embed
 ANNOTATION(embed)
 
+//===--- Mara/Maratine language tokens -----------------------------------===//
+// Vyft Ltd — Proprietary — 2026
+// These tokens extend the tok:: namespace for the Mara language frontend.
+// Mara types: string i32 i64 u64 bool ptr array (only these 7).
+// Bodies always use [ ] — never { }.  Array separator is ; not ,.
+
+// Keywords
+TOK(maratine_base)          // base  (after # forms #base import)
+TOK(maratine_var)           // var   — mutable declaration
+TOK(maratine_let)           // let   — immutable declaration
+TOK(maratine_rel)           // rel   — function/class declarator
+TOK(maratine_op)            // op    — public visibility
+TOK(maratine_cl)            // cl    — private visibility
+TOK(maratine_if)            // if
+TOK(maratine_else)          // else
+TOK(maratine_loop)          // loop
+TOK(maratine_break)         // break
+TOK(maratine_log)           // log   — console output (log: expr;)
+TOK(maratine_ret)           // ret   — return (ret expr; — no colon)
+TOK(maratine_self)          // self
+TOK(maratine_null)          // null
+TOK(maratine_nullptr)       // nullptr
+TOK(maratine_true)          // true
+TOK(maratine_false)         // false
+TOK(maratine_inherit_t)     // t  (suffix in <[string Type]>t)
+
+// Primitive types — only valid inside < >
+TOK(maratine_type_string)   // string  (always lowercase)
+TOK(maratine_type_i32)      // i32
+TOK(maratine_type_i64)      // i64
+TOK(maratine_type_u64)      // u64
+TOK(maratine_type_bool)     // bool
+TOK(maratine_type_ptr)      // ptr
+TOK(maratine_type_array)    // array
+
+// Operators/punctuation
+TOK(maratine_triple_star)   // ***  — module/function path separator
+
+//===----------------------------------------------------------------------===//
+
 #undef PRAGMA_ANNOTATION
 #undef ANNOTATION
 #undef TESTING_KEYWORD

@@ -1,14 +1,13 @@
-//===--- MaratineSema.h - Semantic analysis for Maratine language ----===//
+//===--- MaratineSema.h - Semantic analysis for Mara/Maratine language --===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_FRONTEND_MARATINE_MARATINESEMA_H
 #define LLVM_FRONTEND_MARATINE_MARATINESEMA_H
 
+#include "MaratineAST.h"
 #include "clang/Sema/Sema.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Stmt.h"
@@ -24,16 +23,11 @@ public:
            /*ExternalSource=*/nullptr,
            /*DelayedTemplates=*/true) {}
 
-  // Override to handle MaratineImportDecl
   bool ActOnImportDecl(MaratineImportDecl *D);
-
-  // Override to handle MaratineLetDecl (type checking, initializer)
   bool ActOnLetDecl(MaratineLetDecl *D);
-
-  // Override to handle MaratineFunctionDecl (body checking)
   bool ActOnFunctionDecl(MaratineFunctionDecl *D);
-
-  // Override to handle MaratineExprStmt (log/ret)
+  bool ActOnIfStmt(MaratineIfStmt *S);
+  bool ActOnLoopStmt(MaratineLoopStmt *S);
   bool ActOnExprStmt(MaratineExprStmt *S);
 };
 

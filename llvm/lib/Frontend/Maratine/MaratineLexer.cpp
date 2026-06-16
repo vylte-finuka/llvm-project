@@ -1,13 +1,20 @@
-//===--- MaratineLexer.cpp - Lexer for Maratine language -----------===//
+//===--- MaratineLexer.cpp - Lexer for Mara/Maratine language -----------===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
+//
+//===----------------------------------------------------------------------===//
+//
+// Lexer for the Mara language. Extends the base clang TokenLexer to:
+//   - Recognize Mara keywords (var, let, rel, op, cl, if, else, loop, …)
+//   - Lex the *** triple-star path separator as a single token
+//   - Map only the 7 Mara primitive types (string i32 i64 u64 bool ptr array)
+//   - Reject forbidden words (then, const, String, print, f32, u32, …)
+//     by letting them fall through as plain identifiers so the parser can
+//     emit a targeted diagnostic.
 //
 //===----------------------------------------------------------------------===//
 
 #include "MaratineLexer.h"
-#include "clang/Basic/TokenKinds.h"
 #include "clang/Basic/CharInfo.h"
 #include "llvm/ADT/StringSwitch.h"
 
@@ -15,136 +22,123 @@ using namespace clang;
 using namespace clang::maratine;
 
 MaratineLexer::MaratineLexer(const LangOptions &LO, SourceManager &SM,
-                             const FileID &FID, const SrcMgr::CharacteristicKind CharWidth,
+                             const FileID &FID,
+                             const SrcMgr::CharacteristicKind CharWidth,
                              bool DisableTrigraphs)
   : TokenLexer(LO, SM, FID, CharWidth, DisableTrigraphs) {}
 
 bool MaratineLexer::LexToken(Token &Result) {
-  // Let the base lexer do the heavy lifting (whitespace, comments, etc.)
   if (TokenLexer::LexToken(Result))
     return true;
 
-  // If we got an identifier, see if it's a Maratine keyword.
+  // -----------------------------------------------------------------------
+  // 1. Keyword recognition
+  // -----------------------------------------------------------------------
   if (Result.is(tok::identifier)) {
-    StringRef Text = getSourceManager().getCharacterData(
-                         Result.getLocation())
-                         .substr(0, Result.getLength());
-    TokenKind K = getKeywordKind(Text);
+    StringRef Text = getSourceManager()
+                       .getCharacterData(Result.getLocation())
+                       .substr(0, Result.getLength());
+    tok::TokenKind K = getKeywordKind(Text);
     if (K != tok::unknown) {
       Result.setKind(K);
       return true;
     }
+    // Plain identifier — leave as-is.
+    return true;
   }
 
-  // Handle multi‑character operators that are not in the base lexer.
+  // -----------------------------------------------------------------------
+  // 2. *** triple-star path separator
+  //    Lex three consecutive '*' characters as a single tok::maratine_triple_star.
+  // -----------------------------------------------------------------------
+  if (Result.is(tok::star)) {
+    const char *Ptr =
+        getSourceManager().getCharacterData(Result.getLocation());
+    if (Ptr[1] == '*' && Ptr[2] == '*') {
+      Result.setKind(tok::maratine_triple_star);
+      Result.setLength(3);
+      return true;
+    }
+    // Single '*' — leave as tok::star.
+    return true;
+  }
+
+  // -----------------------------------------------------------------------
+  // 3. Compound operators
+  // -----------------------------------------------------------------------
   if (Result.is(tok::unknown)) {
-    const char *Ptr = getSourceManager().getCharacterData(Result.getLocation());
-    // Two‑character operators
-    if (Ptr[0] == '+' && Ptr[1] == '>') {
-      Result.setKind(tok::maratine_greater_assign);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '+' && Ptr[1] == '<') {
-      Result.setKind(tok::maratine_less_assign);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '-' && Ptr[1] == '<') {
-      Result.setKind(tok::maratine_minus_less);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '=' && Ptr[1] == '+') {
-      Result.setKind(tok::maratine_eq_plus);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '-' && Ptr[1] == '=') {
-      Result.setKind(tok::maratine_minus_eq);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '*' && Ptr[1] == '>') {
-      Result.setKind(tok::maratine_star_greater);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '*' && Ptr[1] == '<') {
-      Result.setKind(tok::maratine_star_less);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '/' && Ptr[1] == '>') {
-      Result.setKind(tok::maratine_slash_greater);
-      Result.setLength(2);
-      return true;
-    }
-    if (Ptr[0] == '/' && Ptr[1] == '<') {
-      Result.setKind(tok::maratine_slash_less);
-      Result.setLength(2);
-      return true;
-    }
-    // Arrow operator "->"
-    if (Ptr[0] == '-' && Ptr[1] == '>') {
-      Result.setKind(tok::maratine_arrow);
-      Result.setLength(2);
-      return true;
-    }
+    const char *Ptr =
+        getSourceManager().getCharacterData(Result.getLocation());
+
+    auto tryTwo = [&](char a, char b, tok::TokenKind K) -> bool {
+      if (Ptr[0] == a && Ptr[1] == b) {
+        Result.setKind(K);
+        Result.setLength(2);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryTwo('=', '=', tok::equalequal))    return true;
+    if (tryTwo('!', '=', tok::exclaimequal))  return true;
+    if (tryTwo('<', '=', tok::lessequal))      return true;
+    if (tryTwo('>', '=', tok::greaterequal))   return true;
+    if (tryTwo('&', '&', tok::ampamp))         return true;
+    if (tryTwo('|', '|', tok::pipepipe))       return true;
+    if (tryTwo('<', '<', tok::lessless))       return true;
+    if (tryTwo('>', '>', tok::greatergreater)) return true;
+    if (tryTwo('-', '>', tok::arrow))          return true;
   }
 
   return false;
 }
 
-TokenKind MaratineLexer::getKeywordKind(StringRef Text) {
-  return StringSwitch<TokenKind>(Text)
-    // Maratine‑specific keywords
-    .Case("#base",      tok::maratine_hash_base)
-    .Case("let",        tok::maratine_let)
-    .Case("rel",        tok::maratine_rel)
-    .Case("cl",         tok::maratine_cl)
-    .Case("log",        tok::maratine_log)
-    .Case("ret",        tok::maratine_ret)
-    .Case("if",         tok::maratine_if)
-    .Case("else",       tok::maratine_else)
-    .Case("then",       tok::maratine_then)
-    .Case("loop",       tok::maratine_loop)
-    .Case("var",        tok::maratine_var)
-    .Case("const",      tok::maratine_const)
-    .Case("print",      tok::maratine_print)
-    // Integer types
-    .Case("i8",         tok::maratine_type_i8)
-    .Case("i16",        tok::maratine_type_i16)
-    .Case("i32",        tok::maratine_type_i32)
-    .Case("i64",        tok::maratine_type_i64)
-    .Case("i128",       tok::maratine_type_i128)
-    .Case("i256",       tok::maratine_type_i256)
-    .Case("i512",       tok::maratine_type_i512)
-    .Case("i1024",      tok::maratine_type_i1024)
-    .Case("i2048",      tok::maratine_type_i2048)
-    // Unsigned integer types
-    .Case("u8",         tok::maratine_type_u8)
-    .Case("u16",        tok::maratine_type_u16)
-    .Case("u32",        tok::maratine_type_u32)
-    .Case("u64",        tok::maratine_type_u64)
-    .Case("u128",       tok::maratine_type_u128)
-    .Case("u256",       tok::maratine_type_u256)
-    .Case("u512",       tok::maratine_type_u512)
-    .Case("u1024",      tok::maratine_type_u1024)
-    .Case("u2048",      tok::maratine_type_u2048)
-    // Floating‑point types
-    .Case("f8",         tok::maratine_type_f8)
-    .Case("f16",        tok::maratine_type_f16)
-    .Case("f32",        tok::maratine_type_f32)
-    .Case("f64",        tok::maratine_type_f64)
-    .Case("f128",       tok::maratine_type_f128)
-    .Case("f256",       tok::maratine_type_f256)
-    .Case("f512",       tok::maratine_type_f512)
-    .Case("f1024",      tok::maratine_type_f1024)
-    .Case("f2048",      tok::maratine_type_f2048)
-    // String type
-    .Case("String",     tok::maratine_type_string)
-    // Array type token
-    .Case("array",      tok::maratine_type_array)
+// -------------------------------------------------------------------------
+// Keyword table — strictly maps the Mara spec.
+// Words NOT in this table are plain identifiers (the parser handles errors).
+// -------------------------------------------------------------------------
+tok::TokenKind MaratineLexer::getKeywordKind(StringRef Text) {
+  return llvm::StringSwitch<tok::TokenKind>(Text)
+    // --- Import directive (handled as a keyword prefix) ---
+    // Note: "#base" is lexed as '#' + "base"; the parser combines them.
+    // We handle the bare word "base" here for robustness.
+    .Case("base",     tok::maratine_base)
+
+    // --- Variable / constant declaration ---
+    .Case("var",      tok::maratine_var)   // mutable
+    .Case("let",      tok::maratine_let)   // immutable
+
+    // --- Function declaration ---
+    .Case("rel",      tok::maratine_rel)
+    .Case("op",       tok::maratine_op)    // public
+    .Case("cl",       tok::maratine_cl)    // private
+
+    // --- Control flow ---
+    .Case("if",       tok::maratine_if)
+    .Case("else",     tok::maratine_else)
+    .Case("loop",     tok::maratine_loop)
+    .Case("break",    tok::maratine_break)
+
+    // --- Statements ---
+    .Case("log",      tok::maratine_log)
+    .Case("ret",      tok::maratine_ret)
+
+    // --- Literals ---
+    .Case("null",     tok::maratine_null)
+    .Case("nullptr",  tok::maratine_nullptr)
+    .Case("true",     tok::maratine_true)
+    .Case("false",    tok::maratine_false)
+    .Case("self",     tok::maratine_self)
+
+    // --- Mara primitive types (only valid inside < >) ---
+    .Case("string",   tok::maratine_type_string)  // always lowercase
+    .Case("i32",      tok::maratine_type_i32)
+    .Case("i64",      tok::maratine_type_i64)
+    .Case("u64",      tok::maratine_type_u64)
+    .Case("bool",     tok::maratine_type_bool)
+    .Case("ptr",      tok::maratine_type_ptr)
+    .Case("array",    tok::maratine_type_array)
+
+    // Everything else is a plain identifier.
     .Default(tok::unknown);
 }

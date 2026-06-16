@@ -1,0 +1,129 @@
+//===================================================================
+//  TemplateView.mara – Vue principale de l'application GUI
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Composant racine de l'interface graphique.
+//      Charge le layout depuis le slasset, attache les vues au
+//      RenderContext, gère les événements tactiles et stylet.
+//      Point de départ à personnaliser pour toute nouvelle application.
+//===================================================================
+
+#base <std***core***self***[ ComponentView, RenderContext ]>;
+#base <std***io***MaraIO>;
+#base <MaratineKit>;
+
+// TemplateView – vue racine publique de l'application
+rel op TemplateView: <[string ComponentView]>t [
+
+    var _ctx:       <string> = "";
+    var _tabIndex:  <i32>    = 0;
+    let TAB_COUNT:  <i32>    = 3;
+
+    // Create – initialise la vue et attache les éléments UI
+    rel op Create: [ctx string] [
+        _ctx = ctx;
+        log: "TemplateView: Create()";
+
+        // Fond noir plein écran (rond 454×454)
+        let bg: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            "", "#000000", "#000000"
+        );
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, bg);
+
+        // Barre de navigation horizontale (onglets)
+        let tab0: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            "Accueil", "#FFFFFF", "#111111"
+        );
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetAlign>(tab0, "center");
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetFontSize>(tab0, 14);
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, tab0);
+
+        let tab1: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            "Données", "#888888", "#111111"
+        );
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetAlign>(tab1, "center");
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetFontSize>(tab1, 14);
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, tab1);
+
+        let tab2: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            "Réglages", "#888888", "#111111"
+        );
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetAlign>(tab2, "center");
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetFontSize>(tab2, 14);
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, tab2);
+
+        // Zone de contenu principale
+        let content: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            "Contenu de l'application", "#FFFFFF", "#000000"
+        );
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetAlign>(content, "center");
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetFontSize>(content, 18);
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, content);
+
+        log: "TemplateView: vue initialisée";
+        ret ctx;
+    ];
+
+    // Render – flush GPU et traitement des événements
+    rel op Render: [view string, ctx string] [
+        let touchEvt: <ptr> = <MaraIO***GetTouch***()>;
+        if (touchEvt != nullptr) [
+            let _: <i32> = self***onTouchEvent(touchEvt);
+        ];
+
+        let stylusEvt: <ptr> = <MaraIO***GetStylus***()>;
+        if (stylusEvt != nullptr) [
+            let _: <i32> = self***onStylusEvent(stylusEvt);
+        ];
+
+        let gpuResult: <i32> = <DrvAPIInterCon***GpuFlushRenderContext***>(ctx);
+        if (gpuResult != 0) [
+            log: "TemplateView: erreur rendu – " + gpuResult;
+            ret gpuResult;
+        ];
+
+        ret 0;
+    ];
+
+    // onTouchEvent – navigation par swipe horizontal entre onglets (privé)
+    rel cl onTouchEvent: [evt ptr] [
+        let evtType: <i32> = <MaratineKit***TouchEvent***GetType***>(evt);
+        let x: <i32>       = <MaratineKit***TouchEvent***GetX***>(evt);
+
+        if (evtType == 3) [
+            if (x < 0 && _tabIndex < TAB_COUNT - 1) [
+                _tabIndex = _tabIndex + 1;
+                log: "TemplateView: onglet " + _tabIndex;
+            ];
+            if (x > 0 && _tabIndex > 0) [
+                _tabIndex = _tabIndex - 1;
+                log: "TemplateView: onglet " + _tabIndex;
+            ];
+        ];
+
+        ret 0;
+    ];
+
+    // onStylusEvent – tracé stylet (privé)
+    rel cl onStylusEvent: [evt ptr] [
+        let evtType: <i32>    = <MaratineKit***StylusEvent***GetType***>(evt);
+        let x: <i32>          = <MaratineKit***StylusEvent***GetX***>(evt);
+        let y: <i32>          = <MaratineKit***StylusEvent***GetY***>(evt);
+        let pressure: <i32>   = <MaratineKit***StylusEvent***GetPressure***>(evt);
+
+        if (evtType == 4 || evtType == 6) [
+            let color: <i32> = 0xFFFFFF;
+            let _: <i32> = <DrvAPIInterCon***GpuDrawPixel***>(x, y, color);
+        ];
+
+        ret 0;
+    ];
+
+    // Destroy – libère les ressources (privé)
+    rel cl Destroy: [view string, ctx string] [
+        let _: <i32> = <MaratineKit***RenderContext***Detach>(ctx, view);
+        ret 0;
+    ];
+];

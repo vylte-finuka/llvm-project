@@ -1,0 +1,191 @@
+//===================================================================
+//  MGCTexture.mara – Maratine Graphical Compute — Texture Manager
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Chargement, compression GPU (ASTC) et streaming de textures.
+//      Mip-maps automatiques, atlas 2D, texture arrays, cubemaps.
+//      Budget VRAM 256 Mo — éviction LRU automatique.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <std***fs***[ MaraFS ]>;
+#base <MaratineKit***MGC***MGCCore>;
+
+let TEX_FMT_RGBA8:    <i32> = 0;
+let TEX_FMT_ASTC4x4:  <i32> = 1;
+let TEX_FMT_ASTC8x8:  <i32> = 2;
+let TEX_FMT_BC7:      <i32> = 3;
+let TEX_FMT_R16F:     <i32> = 4;
+let TEX_FMT_RGBA16F:  <i32> = 5;
+let TEX_FMT_DEPTH32:  <i32> = 6;
+
+let TEX_2D:        <i32> = 0;
+let TEX_CUBEMAP:   <i32> = 1;
+let TEX_ARRAY:     <i32> = 2;
+let TEX_3D:        <i32> = 3;
+
+let MGC_MAX_TEXTURES:  <i32> = 1024;
+let VRAM_BUDGET_MB:    <i32> = 256;
+let VRAM_BUDGET_BYTES: <i32> = 268435456;
+
+let TEX_OK:          <i32> = 0;
+let TEX_ERR_LOAD:    <i32> = -1;
+let TEX_ERR_VRAM:    <i32> = -2;
+let TEX_ERR_FMT:     <i32> = -3;
+let TEX_ERR_INVALID: <i32> = -4;
+let TEX_ERR_FULL:    <i32> = -5;
+
+var _texHandles:  <array> = [nullptr; MGC_MAX_TEXTURES];
+var _texNames:    <array> = [null;    MGC_MAX_TEXTURES];
+var _texSizes:    <array> = [0;       MGC_MAX_TEXTURES];
+var _texFrameUse: <array> = [0;       MGC_MAX_TEXTURES];
+var _texCount:    <i32>   = 0;
+var _vramUsed:    <i32>   = 0;
+
+// Cherche par nom (privé)
+rel cl _findTex: [name string] [
+    var i: <i32> = 0;
+    loop i < _texCount [
+        if (_texNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Éviction LRU — libère la texture la moins récemment utilisée (privé)
+rel cl _evictLRU: [] [
+    var oldest: <i32> = 0;
+    var oldestFrame: <i32> = _texFrameUse[0];
+    var i: <i32> = 1;
+    loop i < _texCount [
+        if (_texFrameUse[i] < oldestFrame) [
+            oldestFrame = _texFrameUse[i];
+            oldest = i;
+        ];
+        i = i + 1;
+    ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuTexDestroy***>(_texHandles[oldest]);
+    _vramUsed = _vramUsed - _texSizes[oldest];
+    _texHandles[oldest]  = nullptr;
+    _texNames[oldest]    = null;
+    _texSizes[oldest]    = 0;
+    _texFrameUse[oldest] = 0;
+    _texCount = _texCount - 1;
+
+    log: "MGCTexture: LRU éviction – slot " + oldest;
+    ret TEX_OK;
+];
+
+// Load – charge une texture depuis C:\Assets\ avec compression ASTC auto
+rel op Load: [name string, path string] [
+    if (name == null || path == null) [ ret TEX_ERR_INVALID; ];
+
+    let existing: <i32> = _findTex(name);
+    if (existing != -1) [
+        _texFrameUse[existing] = <MGCCore***GetFrameIndex***()>;
+        ret TEX_OK;
+    ];
+
+    let rawData: <ptr> = <MaraFS***Read***>(path);
+    if (rawData == nullptr) [ ret TEX_ERR_LOAD; ];
+
+    let compressed: <ptr> = <DrvAPIInterCon***GpuTexCompressASTC***>(rawData, 4, 4);
+    let compSize: <i32> = <DrvAPIInterCon***GpuTexCompressedSize***>(compressed);
+
+    if ((_vramUsed + compSize) > VRAM_BUDGET_BYTES) [
+        let _: <i32> = _evictLRU();
+    ];
+
+    if (_texCount >= MGC_MAX_TEXTURES) [ ret TEX_ERR_FULL; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***GpuTexCreate***>(compressed, TEX_FMT_ASTC4x4, 1);
+    if (handle == nullptr) [ ret TEX_ERR_VRAM; ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuTexGenMipmaps***>(handle);
+
+    _texNames[_texCount]    = name;
+    _texHandles[_texCount]  = handle;
+    _texSizes[_texCount]    = compSize;
+    _texFrameUse[_texCount] = <MGCCore***GetFrameIndex***()>;
+    _texCount  = _texCount + 1;
+    _vramUsed  = _vramUsed + compSize;
+
+    let _: <i32> = <MGCCore***AllocResource***>(name, handle, 10);
+    ret TEX_OK;
+];
+
+// LoadHDR – charge une texture HDR RGBA16F (skybox, IBL)
+rel op LoadHDR: [name string, path string] [
+    if (name == null || path == null) [ ret TEX_ERR_INVALID; ];
+    let rawData: <ptr> = <MaraFS***Read***>(path);
+    if (rawData == nullptr) [ ret TEX_ERR_LOAD; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***GpuTexCreate***>(rawData, TEX_FMT_RGBA16F, 0);
+    if (handle == nullptr) [ ret TEX_ERR_VRAM; ];
+
+    let size: <i32> = <DrvAPIInterCon***GpuTexSizeBytes***>(handle);
+    _texNames[_texCount]    = name;
+    _texHandles[_texCount]  = handle;
+    _texSizes[_texCount]    = size;
+    _texFrameUse[_texCount] = <MGCCore***GetFrameIndex***()>;
+    _texCount = _texCount + 1;
+    _vramUsed = _vramUsed + size;
+    ret TEX_OK;
+];
+
+// LoadCubemap – charge 6 faces pour une cubemap (IBL, skybox)
+rel op LoadCubemap: [name string, paths array] [
+    var faces: <array> = [nullptr; 6];
+    var i: <i32> = 0;
+    loop i < 6 [
+        faces[i] = <MaraFS***Read***>(paths[i]);
+        if (faces[i] == nullptr) [ ret TEX_ERR_LOAD; ];
+        i = i + 1;
+    ];
+
+    let handle: <ptr> = <DrvAPIInterCon***GpuTexCreateCubemap***>(faces, TEX_FMT_RGBA16F);
+    if (handle == nullptr) [ ret TEX_ERR_VRAM; ];
+
+    let size: <i32> = <DrvAPIInterCon***GpuTexSizeBytes***>(handle);
+    _texNames[_texCount]    = name;
+    _texHandles[_texCount]  = handle;
+    _texSizes[_texCount]    = size;
+    _texFrameUse[_texCount] = <MGCCore***GetFrameIndex***()>;
+    _texCount = _texCount + 1;
+    _vramUsed = _vramUsed + size;
+    ret TEX_OK;
+];
+
+// Get – retourne le handle GPU d'une texture par nom
+rel op Get: [name string] [
+    let idx: <i32> = _findTex(name);
+    if (idx == -1) [ ret nullptr; ];
+    _texFrameUse[idx] = <MGCCore***GetFrameIndex***()>;
+    ret _texHandles[idx];
+];
+
+// Unload – libère une texture par nom
+rel op Unload: [name string] [
+    let idx: <i32> = _findTex(name);
+    if (idx == -1) [ ret TEX_ERR_INVALID; ];
+    let _: <i32> = <DrvAPIInterCon***GpuTexDestroy***>(_texHandles[idx]);
+    _vramUsed = _vramUsed - _texSizes[idx];
+    _texHandles[idx] = nullptr;
+    _texNames[idx]   = null;
+    _texCount = _texCount - 1;
+    ret TEX_OK;
+];
+
+// GetVramUsedMB – VRAM utilisée en Mo
+rel op GetVramUsedMB: [] [
+    ret _vramUsed / 1048576;
+];
+
+// GetVramBudgetMB – budget total en Mo
+rel op GetVramBudgetMB: [] [
+    ret VRAM_BUDGET_MB;
+];

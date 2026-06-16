@@ -1,0 +1,169 @@
+//===================================================================
+//  MGCMesh.mara – Maratine Graphical Compute — Mesh Manager
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Chargement, upload GPU et rendu de géométrie 3D.
+//      Skinning GPU (64 bones), morphing, LOD automatique 4 niveaux,
+//      instancing hardware, vertex compression. Formats : MGCM, OBJ, glTF.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <std***fs***[ MaraFS ]>;
+#base <MaratineKit***MGC***MGCCore>;
+
+let MESH_FMT_MGCM:  <i32> = 0;
+let MESH_FMT_OBJ:   <i32> = 1;
+let MESH_FMT_GLTF:  <i32> = 2;
+
+let MESH_MAX_BONES:   <i32> = 64;
+let MESH_MAX_MORPHS:  <i32> = 32;
+let MESH_LOD_LEVELS:  <i32> = 4;
+let MGC_MAX_MESHES:   <i32> = 2048;
+let MAX_INSTANCES:    <i32> = 16384;
+
+let MESH_OK:           <i32> = 0;
+let MESH_ERR_LOAD:     <i32> = -1;
+let MESH_ERR_UPLOAD:   <i32> = -2;
+let MESH_ERR_NOT_FOUND:<i32> = -3;
+let MESH_ERR_INVALID:  <i32> = -4;
+let MESH_ERR_FULL:     <i32> = -5;
+
+var _meshNames:   <array> = [null;    MGC_MAX_MESHES];
+var _meshVBOs:    <array> = [nullptr; MGC_MAX_MESHES];
+var _meshIBOs:    <array> = [nullptr; MGC_MAX_MESHES];
+var _meshSkinBuf: <array> = [nullptr; MGC_MAX_MESHES];
+var _meshLODs:    <array> = [nullptr; MGC_MAX_MESHES];
+var _meshCount:   <i32>   = 0;
+
+// Cherche par nom (privé)
+rel cl _findMesh: [name string] [
+    var i: <i32> = 0;
+    loop i < _meshCount [
+        if (_meshNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Load – charge et uploade un mesh depuis C:\Assets\Meshes\
+rel op Load: [name string, path string] [
+    if (name == null || path == null) [ ret MESH_ERR_INVALID; ];
+    if (_findMesh(name) != -1) [ ret MESH_OK; ];
+    if (_meshCount >= MGC_MAX_MESHES) [ ret MESH_ERR_FULL; ];
+
+    let raw: <ptr> = <MaraFS***Read***>(path);
+    if (raw == nullptr) [ ret MESH_ERR_LOAD; ];
+
+    let parsed: <ptr> = <DrvAPIInterCon***MeshParse***>(raw);
+    if (parsed == nullptr) [ ret MESH_ERR_LOAD; ];
+
+    let vbo: <ptr> = <DrvAPIInterCon***GpuBufCreate***>(
+        <DrvAPIInterCon***MeshGetVertices***>(parsed),
+        <DrvAPIInterCon***MeshGetVertexSize***>(parsed)
+    );
+    let ibo: <ptr> = <DrvAPIInterCon***GpuBufCreate***>(
+        <DrvAPIInterCon***MeshGetIndices***>(parsed),
+        <DrvAPIInterCon***MeshGetIndexSize***>(parsed)
+    );
+
+    if (vbo == nullptr || ibo == nullptr) [ ret MESH_ERR_UPLOAD; ];
+
+    let skinBuf: <ptr> = nullptr;
+    if (<DrvAPIInterCon***MeshHasSkin***>(parsed) != 0) [
+        skinBuf = <DrvAPIInterCon***GpuBufCreate***>(
+            <DrvAPIInterCon***MeshGetBoneData***>(parsed),
+            MESH_MAX_BONES * 64
+        );
+    ];
+
+    let lodBuf: <ptr> = <DrvAPIInterCon***MeshGenLODs***>(parsed, MESH_LOD_LEVELS);
+
+    _meshNames[_meshCount]   = name;
+    _meshVBOs[_meshCount]    = vbo;
+    _meshIBOs[_meshCount]    = ibo;
+    _meshSkinBuf[_meshCount] = skinBuf;
+    _meshLODs[_meshCount]    = lodBuf;
+    _meshCount = _meshCount + 1;
+
+    let _: <i32> = <MGCCore***AllocResource***>(name, vbo, 20);
+    ret MESH_OK;
+];
+
+// Draw – dessine un mesh avec le shader et la matrice monde donnés
+rel op Draw: [name string, shaderHandle ptr, worldMatrix ptr] [
+    let idx: <i32> = _findMesh(name);
+    if (idx == -1) [ ret MESH_ERR_NOT_FOUND; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shaderHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindVBO***>(ctx, _meshVBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindIBO***>(ctx, _meshIBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetMatrix***>(ctx, "u_World", worldMatrix);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawIndexed***>(ctx);
+    ret MESH_OK;
+];
+
+// DrawInstanced – instancing hardware jusqu'à MAX_INSTANCES
+rel op DrawInstanced: [name string, shaderHandle ptr, matrices array, count i32] [
+    let idx: <i32> = _findMesh(name);
+    if (idx == -1) [ ret MESH_ERR_NOT_FOUND; ];
+    if (count <= 0 || count > MAX_INSTANCES) [ ret MESH_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let instBuf: <ptr> = <DrvAPIInterCon***GpuBufCreateTransient***>(matrices, count * 64);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shaderHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindVBO***>(ctx, _meshVBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindIBO***>(ctx, _meshIBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindInstances***>(ctx, instBuf, count);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawIndexedInstanced***>(ctx, count);
+    ret MESH_OK;
+];
+
+// DrawSkinned – skinning GPU : upload bones et dispatch vertex shader
+rel op DrawSkinned: [name string, shaderHandle ptr, worldMatrix ptr, boneMatrices array, boneCount i32] [
+    let idx: <i32> = _findMesh(name);
+    if (idx == -1) [ ret MESH_ERR_NOT_FOUND; ];
+    if (_meshSkinBuf[idx] == nullptr) [ ret MESH_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let _: <i32> = <DrvAPIInterCon***GpuBufUpdate***>(_meshSkinBuf[idx], boneMatrices, boneCount * 64);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shaderHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindVBO***>(ctx, _meshVBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindIBO***>(ctx, _meshIBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Bones", _meshSkinBuf[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetMatrix***>(ctx, "u_World", worldMatrix);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawIndexed***>(ctx);
+    ret MESH_OK;
+];
+
+// SetMorphWeight – ajuste un poids de morph target (blend shapes)
+rel op SetMorphWeight: [name string, morphIdx i32, weight i32] [
+    let idx: <i32> = _findMesh(name);
+    if (idx == -1) [ ret MESH_ERR_NOT_FOUND; ];
+    ret <DrvAPIInterCon***MeshSetMorphWeight***>(_meshVBOs[idx], morphIdx, weight);
+];
+
+// GetLODForDistance – retourne le niveau LOD selon la distance caméra
+rel op GetLODForDistance: [distUnits i32] [
+    if (distUnits < 10)  [ ret 0; ];
+    if (distUnits < 50)  [ ret 1; ];
+    if (distUnits < 150) [ ret 2; ];
+    ret 3;
+];
+
+// Unload – libère un mesh du GPU
+rel op Unload: [name string] [
+    let idx: <i32> = _findMesh(name);
+    if (idx == -1) [ ret MESH_ERR_NOT_FOUND; ];
+    let _: <i32> = <DrvAPIInterCon***GpuBufDestroy***>(_meshVBOs[idx]);
+    let _: <i32> = <DrvAPIInterCon***GpuBufDestroy***>(_meshIBOs[idx]);
+    _meshNames[idx]   = null;
+    _meshVBOs[idx]    = nullptr;
+    _meshIBOs[idx]    = nullptr;
+    _meshSkinBuf[idx] = nullptr;
+    _meshCount = _meshCount - 1;
+    ret MESH_OK;
+];

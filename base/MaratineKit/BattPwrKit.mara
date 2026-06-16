@@ -1,0 +1,201 @@
+//===================================================================
+//  BattPwrKit.mara – Battery & Power Management Kit
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestion de l'énergie pour Slura : batterie LiPo, récupération
+//      thermoélectrique et panneau solaire.
+//      Modes de puissance adaptatifs, fallback LoRa automatique
+//      sous 20% et estimation d'autonomie en temps réel.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
+
+let BATT_MAX_MAH:    <i32> = 380;
+
+let CHARGE_NONE:     <i32> = 0;
+let CHARGE_USB:      <i32> = 1;
+let CHARGE_SOLAR:    <i32> = 2;
+let CHARGE_THERMO:   <i32> = 3;
+let CHARGE_FULL:     <i32> = 4;
+
+let PWRMODE_NORMAL:  <i32> = 0;
+let PWRMODE_LOW:     <i32> = 1;
+let PWRMODE_ULTRA:   <i32> = 2;
+let PWRMODE_CHARGING: <i32> = 3;
+
+let THRESH_LOW:      <i32> = 20;
+let THRESH_ULTRA:    <i32> = 8;
+let THRESH_SOLAR:    <i32> = 5;
+
+let PWR_OK:          <i32> = 0;
+let PWR_ERR_RANGE:   <i32> = -1;
+let PWR_ERR_SENSOR:  <i32> = -2;
+
+var _battLevel:      <i32>  = 100;
+var _chargeState:    <i32>  = CHARGE_NONE;
+var _pwrMode:        <i32>  = PWRMODE_NORMAL;
+var _solarMw:        <i32>  = 0;
+var _thermoMw:       <i32>  = 0;
+var _autonomyHours:  <i32>  = 0;
+var _loraActive:     <bool> = false;
+var _screenDimmed:   <bool> = false;
+
+// Refresh – lit les capteurs d'énergie (privé)
+rel cl _Refresh: [] [
+    _battLevel   = <DrvAPIInterCon***BattGetLevel***()>;
+    _chargeState = <DrvAPIInterCon***BattGetChargeState***()>;
+    _solarMw     = <DrvAPIInterCon***SolarGetPowerMw***()>;
+    _thermoMw    = <DrvAPIInterCon***ThermoGetPowerMw***()>;
+
+    // Autonomie estimée selon mode et sources actives
+    let baseMah: <i32> = (_battLevel * BATT_MAX_MAH) / 100;
+    let extraMw: <i32> = _solarMw + _thermoMw;
+
+    if (_pwrMode == PWRMODE_NORMAL)  [ _autonomyHours = (baseMah * 10) / 150; ];
+    if (_pwrMode == PWRMODE_LOW)     [ _autonomyHours = (baseMah * 10) / 60;  ];
+    if (_pwrMode == PWRMODE_ULTRA)   [ _autonomyHours = (baseMah * 10) / 20;  ];
+
+    if (extraMw > 50) [ _autonomyHours = _autonomyHours + (_autonomyHours / 3); ];
+
+    ret PWR_OK;
+];
+
+// ApplyAdaptiveMode – adapte automatiquement le mode au niveau batterie (privé)
+rel cl _ApplyAdaptiveMode: [] [
+    if (_battLevel <= THRESH_ULTRA) [
+        if (_pwrMode != PWRMODE_ULTRA) [
+            let _: <i32> = SetPowerMode(PWRMODE_ULTRA);
+        ];
+        ret PWR_OK;
+    ];
+
+    if (_battLevel <= THRESH_LOW) [
+        if (_pwrMode == PWRMODE_NORMAL) [
+            let _: <i32> = SetPowerMode(PWRMODE_LOW);
+        ];
+
+        // Activation fallback LoRa
+        if (!_loraActive) [
+            let _: <i32> = <DrvAPIInterCon***LoRaActivate***()>;
+            _loraActive = true;
+            log: "BattPwrKit: fallback LoRa activé";
+        ];
+
+        ret PWR_OK;
+    ];
+
+    // Batterie OK — restaurer mode normal si on était en dégradé
+    if (_battLevel > THRESH_LOW + 5 && _pwrMode != PWRMODE_NORMAL) [
+        if (_loraActive) [
+            let _: <i32> = <DrvAPIInterCon***LoRaDeactivate***()>;
+            _loraActive = false;
+        ];
+        let _: <i32> = SetPowerMode(PWRMODE_NORMAL);
+    ];
+
+    ret PWR_OK;
+];
+
+// GetBatteryLevel – niveau batterie 0–100
+rel op GetBatteryLevel: [] [
+    let _: <i32> = _Refresh();
+    ret _battLevel;
+];
+
+// GetChargeState – état de charge
+rel op GetChargeState: [] [
+    let _: <i32> = _Refresh();
+    ret _chargeState;
+];
+
+// IsCharging – retourne vrai si une source charge la batterie
+rel op IsCharging: [] [
+    let _: <i32> = _Refresh();
+    ret (_chargeState != CHARGE_NONE && _chargeState != CHARGE_FULL);
+];
+
+// GetSolarPower – puissance solaire en mW (0 si ombre)
+rel op GetSolarPower: [] [
+    let _: <i32> = _Refresh();
+    ret _solarMw;
+];
+
+// GetThermoPower – puissance thermoélectrique en mW
+rel op GetThermoPower: [] [
+    let _: <i32> = _Refresh();
+    ret _thermoMw;
+];
+
+// GetTotalHarvest – énergie récupérée totale en mW
+rel op GetTotalHarvest: [] [
+    let _: <i32> = _Refresh();
+    ret _solarMw + _thermoMw;
+];
+
+// GetAutonomyHours – estimation d'autonomie restante en heures
+rel op GetAutonomyHours: [] [
+    let _: <i32> = _Refresh();
+    ret _autonomyHours;
+];
+
+// SetPowerMode – définit le mode de puissance
+rel op SetPowerMode: [mode i32] [
+    if (mode < PWRMODE_NORMAL || mode > PWRMODE_CHARGING) [ ret PWR_ERR_RANGE; ];
+
+    _pwrMode = mode;
+    let _: <i32> = <DrvAPIInterCon***PwrSetMode***>(mode);
+
+    if (mode == PWRMODE_LOW) [
+        let _: <i32> = <DrvAPIInterCon***GpuSetBrightness***>(60);
+        _screenDimmed = true;
+    ];
+
+    if (mode == PWRMODE_ULTRA) [
+        let _: <i32> = <DrvAPIInterCon***GpuSetBrightness***>(20);
+        _screenDimmed = true;
+        let _: <i32> = <DrvAPIInterCon***WifiDisable***()>;
+        let _: <i32> = <DrvAPIInterCon***BtDisable***()>;
+    ];
+
+    if (mode == PWRMODE_NORMAL) [
+        let _: <i32> = <DrvAPIInterCon***GpuSetBrightness***>(100);
+        _screenDimmed = false;
+        let _: <i32> = <DrvAPIInterCon***WifiEnable***()>;
+        let _: <i32> = <DrvAPIInterCon***BtEnable***()>;
+    ];
+
+    log: "BattPwrKit: mode " + mode;
+    ret PWR_OK;
+];
+
+// GetPowerMode – retourne le mode actif
+rel op GetPowerMode: [] [
+    ret _pwrMode;
+];
+
+// IsLoRaActive – retourne vrai si le fallback LoRa est actif
+rel op IsLoRaActive: [] [
+    ret _loraActive;
+];
+
+// Tick – appelé régulièrement par SluPwManSrv pour la gestion adaptative
+rel op Tick: [] [
+    let _: <i32> = _Refresh();
+    let _: <i32> = _ApplyAdaptiveMode();
+    ret PWR_OK;
+];
+
+// IsLow – retourne vrai si batterie sous le seuil bas
+rel op IsLow: [] [
+    let _: <i32> = _Refresh();
+    ret (_battLevel <= THRESH_LOW);
+];
+
+// IsCritical – retourne vrai si batterie en état critique
+rel op IsCritical: [] [
+    let _: <i32> = _Refresh();
+    ret (_battLevel <= THRESH_ULTRA);
+];

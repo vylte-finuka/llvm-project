@@ -1,0 +1,121 @@
+//===================================================================
+//  MaraMem.mara – Memory Manager
+//  Module : base/std/mem
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestionnaire mémoire product-grade pour Slura/Lunée.
+//      Zones HEAP, STACK, SHARED, DMA, SECURE avec quota par zone.
+//      Statistiques d'allocation et détection de pression mémoire.
+//===================================================================
+
+#base <MaratineKit>;
+
+let MEM_ZONE_HEAP:   <i32> = 0;
+let MEM_ZONE_STACK:  <i32> = 1;
+let MEM_ZONE_SHARED: <i32> = 2;
+let MEM_ZONE_DMA:    <i32> = 3;
+let MEM_ZONE_SECURE: <i32> = 4;
+
+let MEM_TOTAL_MB:      <i32> = 2048;
+let MEM_HEAP_MAX_MB:   <i32> = 1536;
+let MEM_STACK_MAX_KB:  <i32> = 8192;
+let MEM_SECURE_MAX_KB: <i32> = 64;
+
+let MEM_OK:          <i32> = 0;
+let MEM_ERR_OOM:     <i32> = -1;
+let MEM_ERR_INVALID: <i32> = -2;
+let MEM_ERR_ALIGN:   <i32> = -3;
+let MEM_ERR_ZONE:    <i32> = -4;
+let MEM_ERR_FREE:    <i32> = -5;
+
+var _heapUsedBytes:   <i32> = 0;
+var _stackUsedBytes:  <i32> = 0;
+var _sharedUsedBytes: <i32> = 0;
+var _dmaUsedBytes:    <i32> = 0;
+var _secureUsedBytes: <i32> = 0;
+var _allocCount:      <i32> = 0;
+var _freeCount:       <i32> = 0;
+
+// Alloc – alloue un bloc dans la zone spécifiée, aligné sur align octets
+rel op Alloc: [size i32, zone i32, align i32] [
+    if (size <= 0) [ ret nullptr; ];
+    if (zone < MEM_ZONE_HEAP || zone > MEM_ZONE_SECURE) [ ret nullptr; ];
+    if (align <= 0 || (align & (align - 1)) != 0) [ ret nullptr; ];
+
+    if (zone == MEM_ZONE_HEAP) [
+        if ((_heapUsedBytes + size) > (MEM_HEAP_MAX_MB * 1048576)) [ ret nullptr; ];
+    ];
+    if (zone == MEM_ZONE_SECURE) [
+        if ((_secureUsedBytes + size) > (MEM_SECURE_MAX_KB * 1024)) [ ret nullptr; ];
+    ];
+
+    let p: <ptr> = <DrvAPIInterCon***MemAlloc***>(size, zone, align);
+    if (p == nullptr) [ ret nullptr; ];
+
+    if (zone == MEM_ZONE_HEAP)   [ _heapUsedBytes   = _heapUsedBytes   + size; ];
+    if (zone == MEM_ZONE_SHARED) [ _sharedUsedBytes  = _sharedUsedBytes + size; ];
+    if (zone == MEM_ZONE_DMA)    [ _dmaUsedBytes     = _dmaUsedBytes    + size; ];
+    if (zone == MEM_ZONE_SECURE) [ _secureUsedBytes  = _secureUsedBytes + size; ];
+    _allocCount = _allocCount + 1;
+
+    ret p;
+];
+
+// AllocHeap – raccourci zone HEAP, align 8
+rel op AllocHeap: [size i32] [
+    ret Alloc(size, MEM_ZONE_HEAP, 8);
+];
+
+// AllocSecure – raccourci zone SECURE, align 32
+rel op AllocSecure: [size i32] [
+    ret Alloc(size, MEM_ZONE_SECURE, 32);
+];
+
+// Free – libère un bloc
+rel op Free: [p ptr, zone i32] [
+    if (p == nullptr) [ ret MEM_ERR_INVALID; ];
+    let result: <i32> = <DrvAPIInterCon***MemFree***>(p, zone);
+    if (result != 0) [ ret MEM_ERR_FREE; ];
+    _freeCount = _freeCount + 1;
+    ret MEM_OK;
+];
+
+// Zero – efface un bloc mémoire
+rel op Zero: [p ptr, size i32] [
+    if (p == nullptr || size <= 0) [ ret MEM_ERR_INVALID; ];
+    let _: <i32> = <DrvAPIInterCon***MemZero***>(p, size);
+    ret MEM_OK;
+];
+
+// Copy – copie size octets de src vers dst
+rel op Copy: [dst ptr, src ptr, size i32] [
+    if (dst == nullptr || src == nullptr || size <= 0) [ ret MEM_ERR_INVALID; ];
+    let _: <i32> = <DrvAPIInterCon***MemCopy***>(dst, src, size);
+    ret MEM_OK;
+];
+
+// GetStats – tableau [heap, stack, shared, dma, secure, allocs, frees]
+rel op GetStats: [] [
+    let stats: <array> = [
+        _heapUsedBytes;
+        _stackUsedBytes;
+        _sharedUsedBytes;
+        _dmaUsedBytes;
+        _secureUsedBytes;
+        _allocCount;
+        _freeCount
+    ];
+    ret stats;
+];
+
+// IsLow – vrai si heap sous 10% disponible
+rel op IsLow: [] [
+    let heapMax: <i32> = MEM_HEAP_MAX_MB * 1048576;
+    ret (_heapUsedBytes > (heapMax - (heapMax / 10)));
+];
+
+// GetHeapUsedKB – heap utilisé en kilo-octets
+rel op GetHeapUsedKB: [] [
+    ret _heapUsedBytes / 1024;
+];

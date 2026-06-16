@@ -1,0 +1,219 @@
+//===================================================================
+//  MGCRenderer.mara – Maratine Graphical Compute — PBR Renderer
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Renderer PBR deferred+forward hybride.
+//      G-Buffer : Albedo/Metallic/Roughness/Normal/Depth.
+//      IBL (Image-Based Lighting), shadow maps cascadées (4 cascades),
+//      Ambient Occlusion (SSAO), Bloom, Tone-mapping ACES.
+//      Résolutions : 454×454 (watch) et 1920×1080 (desktop).
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+#base <MaratineKit***MGC***MGCShader>;
+#base <MaratineKit***MGC***MGCTexture>;
+#base <MaratineKit***MGC***MGCMesh>;
+
+let RT_ALBEDO:    <i32> = 0;
+let RT_NORMAL:    <i32> = 1;
+let RT_PBR:       <i32> = 2;
+let RT_DEPTH:     <i32> = 3;
+let RT_SHADOW:    <i32> = 4;
+let RT_AO:        <i32> = 5;
+let RT_HDR:       <i32> = 6;
+let RT_BLOOM:     <i32> = 7;
+let RT_FINAL:     <i32> = 8;
+let RT_COUNT:     <i32> = 9;
+
+let SHADOW_CASCADE_COUNT: <i32> = 4;
+let SHADOW_MAP_SIZE:      <i32> = 1024;
+
+let RNDR_OK:          <i32> = 0;
+let RNDR_ERR_INIT:    <i32> = -1;
+let RNDR_ERR_PASS:    <i32> = -2;
+let RNDR_ERR_INVALID: <i32> = -3;
+
+var _renderTargets: <array> = [nullptr; RT_COUNT];
+var _shadowMaps:    <array> = [nullptr; SHADOW_CASCADE_COUNT];
+var _initialized:   <i32>   = 0;
+var _width:         <i32>   = 454;
+var _height:        <i32>   = 454;
+var _bloomStrength: <i32>   = 30;
+var _ssaoEnabled:   <i32>   = 1;
+var _shadowEnabled: <i32>   = 1;
+var _iblHandle:     <ptr>   = nullptr;
+
+// Crée les render targets selon la résolution (privé)
+rel cl _createRenderTargets: [w i32, h i32] [
+    _renderTargets[RT_ALBEDO] = <DrvAPIInterCon***GpuRTCreate***>(w, h, 8);
+    _renderTargets[RT_NORMAL] = <DrvAPIInterCon***GpuRTCreate***>(w, h, 8);
+    _renderTargets[RT_PBR]    = <DrvAPIInterCon***GpuRTCreate***>(w, h, 8);
+    _renderTargets[RT_DEPTH]  = <DrvAPIInterCon***GpuRTCreate***>(w, h, 32);
+    _renderTargets[RT_AO]     = <DrvAPIInterCon***GpuRTCreate***>(w, h, 8);
+    _renderTargets[RT_HDR]    = <DrvAPIInterCon***GpuRTCreate***>(w, h, 16);
+    _renderTargets[RT_BLOOM]  = <DrvAPIInterCon***GpuRTCreate***>(w, h, 16);
+    _renderTargets[RT_FINAL]  = <DrvAPIInterCon***GpuRTCreate***>(w, h, 8);
+
+    var i: <i32> = 0;
+    loop i < SHADOW_CASCADE_COUNT [
+        _shadowMaps[i] = <DrvAPIInterCon***GpuRTCreate***>(
+            SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 32
+        );
+        i = i + 1;
+    ];
+    ret RNDR_OK;
+];
+
+// Init – initialise le renderer pour le mode courant
+rel op Init: [] [
+    if (_initialized != 0) [ ret RNDR_OK; ];
+
+    let mode: <i32> = <MGCCore***GetMode***()>;
+    if (mode == 1) [
+        _width  = 1920;
+        _height = 1080;
+    ] else [
+        _width  = 454;
+        _height = 454;
+    ];
+
+    let _: <i32> = _createRenderTargets(_width, _height);
+    let _: <i32> = <MGCShader***LoadAllBuiltins***()>;
+
+    _initialized = 1;
+    log: "MGCRenderer: " + _width + "×" + _height + " — PBR deferred+forward";
+    ret RNDR_OK;
+];
+
+// SetIBL – configure la cubemap IBL (éclairage global)
+rel op SetIBL: [cubemapName string] [
+    _iblHandle = <MGCTexture***Get***>(cubemapName);
+    ret RNDR_OK;
+];
+
+// PassShadow – rendu des shadow maps cascadées
+rel cl _passShadow: [lightDir ptr] [
+    if (_shadowEnabled == 0) [ ret RNDR_OK; ];
+    var i: <i32> = 0;
+    loop i < SHADOW_CASCADE_COUNT [
+        let _: <i32> = <DrvAPIInterCon***GpuRTBind***>(_shadowMaps[i]);
+        let _: <i32> = <DrvAPIInterCon***GpuCmdClear***>(1);
+        let _: <i32> = <DrvAPIInterCon***GpuShadowPassDraw***>(i, lightDir);
+        i = i + 1;
+    ];
+    ret RNDR_OK;
+];
+
+// PassGBuffer – rendu du G-Buffer (géométrie, normals, PBR params)
+rel cl _passGBuffer: [] [
+    let targets: <array> = [
+        _renderTargets[RT_ALBEDO];
+        _renderTargets[RT_NORMAL];
+        _renderTargets[RT_PBR];
+        _renderTargets[RT_DEPTH]
+    ];
+    let _: <i32> = <DrvAPIInterCon***GpuRTBindMRT***>(targets, 4);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdClear***>(1);
+    let shGBuffer: <ptr> = <MGCShader***Get***>("builtin_0");
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(<MGCCore***GetGpuCtx***()>, shGBuffer);
+    let _: <i32> = <DrvAPIInterCon***GpuGBufferDrawScene***()>;
+    ret RNDR_OK;
+];
+
+// PassSSAO – ambient occlusion en espace écran
+rel cl _passSSAO: [] [
+    if (_ssaoEnabled == 0) [ ret RNDR_OK; ];
+    let _: <i32> = <DrvAPIInterCon***GpuRTBind***>(_renderTargets[RT_AO]);
+    let shAO: <ptr> = <MGCShader***Get***>("builtin_6");
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(<MGCCore***GetGpuCtx***()>, shAO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(0, _renderTargets[RT_DEPTH]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(1, _renderTargets[RT_NORMAL]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawFullscreen***()>;
+    ret RNDR_OK;
+];
+
+// PassLighting – accumulation lumière : IBL + lights + shadows → HDR RT
+rel cl _passLighting: [] [
+    let _: <i32> = <DrvAPIInterCon***GpuRTBind***>(_renderTargets[RT_HDR]);
+    let shLit: <ptr> = <MGCShader***Get***>("builtin_0");
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(<MGCCore***GetGpuCtx***()>, shLit);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(0, _renderTargets[RT_ALBEDO]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(1, _renderTargets[RT_NORMAL]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(2, _renderTargets[RT_PBR]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(3, _renderTargets[RT_DEPTH]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(4, _renderTargets[RT_AO]);
+    if (_iblHandle != nullptr) [
+        let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(5, _iblHandle);
+    ];
+    var i: <i32> = 0;
+    loop i < SHADOW_CASCADE_COUNT [
+        let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(6 + i, _shadowMaps[i]);
+        i = i + 1;
+    ];
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawFullscreen***()>;
+    ret RNDR_OK;
+];
+
+// PassBloom – bloom sur les zones lumineuses du HDR buffer
+rel cl _passBloom: [] [
+    let _: <i32> = <DrvAPIInterCon***GpuRTBind***>(_renderTargets[RT_BLOOM]);
+    let shBloom: <ptr> = <MGCShader***Get***>("builtin_5");
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(<MGCCore***GetGpuCtx***()>, shBloom);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(0, _renderTargets[RT_HDR]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_BloomStrength", _bloomStrength);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawFullscreen***()>;
+    ret RNDR_OK;
+];
+
+// PassTonemap – tone-mapping ACES + gamma + composition bloom → framebuffer
+rel cl _passTonemap: [] [
+    let _: <i32> = <DrvAPIInterCon***GpuRTBindBackbuffer***()>;
+    let shTone: <ptr> = <MGCShader***Get***>("builtin_4");
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(<MGCCore***GetGpuCtx***()>, shTone);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(0, _renderTargets[RT_HDR]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindTexture***>(1, _renderTargets[RT_BLOOM]);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdDrawFullscreen***()>;
+    ret RNDR_OK;
+];
+
+// DrawFrame – exécute tous les passes de rendu dans l'ordre correct
+rel op DrawFrame: [lightDir ptr] [
+    if (_initialized == 0) [ ret RNDR_ERR_INIT; ];
+
+    let _: <i32> = _passShadow(lightDir);
+    let _: <i32> = _passGBuffer();
+    let _: <i32> = _passSSAO();
+    let _: <i32> = _passLighting();
+    let _: <i32> = _passBloom();
+    let _: <i32> = _passTonemap();
+
+    ret RNDR_OK;
+];
+
+// SetBloomStrength – intensité du bloom 0–100
+rel op SetBloomStrength: [v i32] [
+    if (v < 0 || v > 100) [ ret RNDR_ERR_INVALID; ];
+    _bloomStrength = v;
+    ret RNDR_OK;
+];
+
+// SetSSAO – active/désactive l'occlusion ambiante
+rel op SetSSAO: [enabled i32] [
+    _ssaoEnabled = enabled;
+    ret RNDR_OK;
+];
+
+// SetShadows – active/désactive les shadow maps
+rel op SetShadows: [enabled i32] [
+    _shadowEnabled = enabled;
+    ret RNDR_OK;
+];
+
+// GetResolution – retourne [width, height]
+rel op GetResolution: [] [
+    ret [_width; _height];
+];

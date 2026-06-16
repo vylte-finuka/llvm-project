@@ -1,42 +1,72 @@
 //===================================================================
-//  LAPrevent.mart – Gestion de l’événement d’affichage (Layout Access Process)
+//  LAPrevent.mara – Lifecycle & Application Prevention Layer
 //  Projet : MaratineProjectAppTemplate.marep
 //  Auteur : Vyft Ltd
 //  Licence : Proprietary – 2026
 //  Description :
-//      Ce module définit l’événement d’affichage qui charge le layout UI
-//      (ResLayout.xml), crée le texte « Hello World ! », le loggue et
-//      expose le layout via le composant <ResLayout>.  Il utilise les
-//      APIs MaratineKit, le format du bundle (MarepFrmt) et le layout
-//      slasset.
+//      Couche de cycle de vie principale du bundle GUI Maratine.
+//      Gère le démarrage, la boucle de rendu, la suspension, la reprise
+//      et l'arrêt. Lance TemplateView comme vue racine de l'application.
 //===================================================================
 
+#base <std***core***self***[ AppLifecycle, ComponentView, RenderContext ]>;
 #base <MaratineKit>;
-#base <std***ComTpe***MarepFrmt***MathSafety>;
-#base <std***ComTpe***MarepFrmt***DrvInstance>;
-#base <std***ComTpe***MarepFrmt***MaraGrphcCAPI>;
-#base <OEntry***RenderRootUI>;
-#base <std***slasset***ResLayout>;   // Import du layout UI depuis ResLayout.xml
+#base <std***core***self***[ TemplateView ]>;
 
-// Fonction d'événement d'affichage – privée (cl)
-rel cl LAPrevent: <> [
+// LAPrevent – cycle de vie public
+rel op LAPrevent: <[string AppLifecycle]>t [
 
-    // Déclaration d'une fonction locale qui utilise le module MathSafety
-    rel cl HelloFunction: <> [
-        // Corps de la fonction – on crée le texte "Hello World !"
-        let msg String = print "Hello World !";
-        // Log via le runtime Maratine (log: …)
-        log: msg;
-        // Retour du texte (utile si on veut le réutiliser)
-        ret msg;
+    var Architecture: <string> = "";
+    var _ctx:         <string> = "";
+    var _view:        <string> = "";
+
+    // Launch – point d'entrée appelé par OEntry
+    rel op Launch: [arch string] [
+        Architecture = arch;
+        log: "LAPrevent: démarrage application GUI";
+
+        let createResult: <i32> = self***onCreate();
+        if (createResult != 0) [
+            log: "LAPrevent: erreur onCreate – " + createResult;
+            ret createResult;
+        ];
+
+        ret 0;
     ];
 
-    // Appel de la fonction au moment du chargement du module
-    HelloFunction <>;
+    // onCreate – initialise le RenderContext et la vue principale
+    rel cl onCreate: [] [
+        _ctx  = <MaratineKit***RenderContext***New()>;
+        _view = <TemplateView***Create>(_ctx);
 
-    // Utilisation du layout déclaré dans ResLayout.xml
-    // Le composant <ResLayout> crée la hiérarchie UI de base.
-    let UIRoot = <ResLayout>;
-    // Log du layout chargé (pour debug)
-    log: "ResLayout chargé";
+        let renderResult: <i32> = <TemplateView***Render>(_view, _ctx);
+        if (renderResult != 0) [
+            log: "LAPrevent: erreur rendu initial – " + renderResult;
+            ret renderResult;
+        ];
+
+        ret 0;
+    ];
+
+    // onPause – suspend le rendu (app en arrière-plan)
+    rel op onPause: [] [
+        let _: <i32> = <MaratineKit***RenderContext***Suspend()>;
+        ret 0;
+    ];
+
+    // onResume – reprend le rendu (app au premier plan)
+    rel op onResume: [] [
+        let _: <i32> = <MaratineKit***RenderContext***Resume()>;
+        let renderResult: <i32> = <TemplateView***Render>(_view, _ctx);
+        if (renderResult != 0) [
+            log: "LAPrevent: erreur rendu reprise – " + renderResult;
+        ];
+        ret 0;
+    ];
+
+    // onDestroy – libère toutes les ressources
+    rel op onDestroy: [] [
+        let _: <i32> = <MaratineKit***RenderContext***Destroy()>;
+        ret 0;
+    ];
 ];

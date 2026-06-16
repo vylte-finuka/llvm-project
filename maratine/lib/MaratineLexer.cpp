@@ -1,4 +1,4 @@
-// Vyft Ltd - Maratine Lexer Implementation
+// Vyft Ltd — Mara/Maratine Lexer Implementation — Proprietary — 2026
 
 #include "MaratineLexer.h"
 #include "llvm/Support/raw_ostream.h"
@@ -10,194 +10,172 @@ using namespace llvm::maratine;
 
 Lexer::Lexer(StringRef Src) : Source(Src) {}
 
-char Lexer::peek(int offset) const {
-  if (Position + offset >= Source.size())
-    return '\0';
-  return Source[Position + offset];
+char Lexer::peek(int Offset) const {
+  size_t I = Pos + (size_t)Offset;
+  if (I >= Source.size()) return '\0';
+  return Source[I];
 }
 
 char Lexer::advance() {
-  if (Position >= Source.size())
-    return '\0';
-
-  char Ch = Source[Position++];
-  if (Ch == '\n') {
-    Line++;
-    Column = 1;
-  } else {
-    Column++;
-  }
+  if (Pos >= Source.size()) return '\0';
+  char Ch = Source[Pos++];
+  if (Ch == '\n') { Line++; Col = 1; } else { Col++; }
   return Ch;
 }
 
 void Lexer::skipWhitespace() {
-  while (std::isspace(peek()))
+  while (Pos < Source.size() && std::isspace(peek()))
     advance();
 }
 
-void Lexer::skipComment() {
-  if (peek() == '/' && peek(1) == '/') {
-    while (peek() != '\n' && peek() != '\0')
-      advance();
-  }
-}
-
-Token Lexer::makeToken(TokenKind Kind, StringRef Lexeme) {
-  return Token{Kind, Lexeme, Line, Column};
-}
-
-Token Lexer::makeStringLiteral() {
-  advance(); // Skip opening quote
-  size_t Start = Position;
-
-  while (peek() != '"' && peek() != '\0')
+void Lexer::skipLineComment() {
+  while (peek() != '\n' && peek() != '\0')
     advance();
-
-  std::string Value = Source.substr(Start, Position - Start).str();
-  advance(); // Skip closing quote
-
-  Token T = makeToken(TokenKind::string_literal, "\"");
-  T.Value = Value;
-  return T;
 }
 
-Token Lexer::makeIdentifier() {
-  size_t Start = Position;
-
-  while (std::isalnum(peek()) || peek() == '_')
-    advance();
-
-  StringRef Lexeme = Source.substr(Start, Position - Start);
-  TokenKind Kind = getKeywordKind(Lexeme);
-
-  Token T = makeToken(Kind, Lexeme);
-  T.Value = Lexeme.str();
-  return T;
+Token Lexer::makeToken(TokenKind K, std::string V) {
+  return Token{K, std::move(V), Line, Col};
 }
 
-Token Lexer::makeNumber() {
-  size_t Start = Position;
-
-  while (std::isdigit(peek()))
-    advance();
-
-  if (peek() == '.' && std::isdigit(peek(1))) {
-    advance();
-    while (std::isdigit(peek()))
-      advance();
-  }
-
-  StringRef Lexeme = Source.substr(Start, Position - Start);
-  Token T = makeToken(TokenKind::number, Lexeme);
-  T.Value = Lexeme.str();
-  return T;
+Token Lexer::lexStringLiteral() {
+  advance(); // skip opening '"'
+  size_t Start = Pos;
+  while (peek() != '"' && peek() != '\0') advance();
+  std::string Val = Source.substr(Start, Pos - Start).str();
+  advance(); // skip closing '"'
+  return makeToken(TokenKind::string_literal, Val);
 }
 
-TokenKind Lexer::getKeywordKind(StringRef Text) {
-  static const std::map<std::string, TokenKind> Keywords = {
-    {"std", TokenKind::kw_std},
-    {"rel", TokenKind::kw_rel},
-    {"op", TokenKind::kw_op},
-    {"cl", TokenKind::kw_cl},
-    {"let", TokenKind::kw_let},
-    {"if", TokenKind::kw_if},
-    {"log", TokenKind::kw_log},
-    {"View", TokenKind::kw_View},
-    {"Text", TokenKind::kw_Text},
+Token Lexer::lexInteger() {
+  size_t Start = Pos;
+  while (std::isdigit(peek())) advance();
+  return makeToken(TokenKind::integer_literal,
+                   Source.substr(Start, Pos - Start).str());
+}
+
+Token Lexer::lexIdentifier() {
+  size_t Start = Pos;
+  while (std::isalnum(peek()) || peek() == '_') advance();
+  StringRef Text = Source.substr(Start, Pos - Start);
+  TokenKind K = keywordKind(Text);
+  return makeToken(K, Text.str());
+}
+
+TokenKind Lexer::keywordKind(StringRef T) const {
+  static const std::map<std::string, TokenKind> KW = {
+    { "base",    TokenKind::kw_base   },
+    { "var",     TokenKind::kw_var    },
+    { "let",     TokenKind::kw_let    },
+    { "rel",     TokenKind::kw_rel    },
+    { "op",      TokenKind::kw_op     },
+    { "cl",      TokenKind::kw_cl     },
+    { "if",      TokenKind::kw_if     },
+    { "else",    TokenKind::kw_else   },
+    { "loop",    TokenKind::kw_loop   },
+    { "break",   TokenKind::kw_break  },
+    { "log",     TokenKind::kw_log    },
+    { "ret",     TokenKind::kw_ret    },
+    { "self",    TokenKind::kw_self   },
+    { "null",    TokenKind::kw_null   },
+    { "nullptr", TokenKind::kw_nullptr},
+    { "true",    TokenKind::kw_true   },
+    { "false",   TokenKind::kw_false  },
+    // Mara primitive types (7 total)
+    { "string",  TokenKind::kw_type_string },
+    { "i32",     TokenKind::kw_type_i32   },
+    { "i64",     TokenKind::kw_type_i64   },
+    { "u64",     TokenKind::kw_type_u64   },
+    { "bool",    TokenKind::kw_type_bool  },
+    { "ptr",     TokenKind::kw_type_ptr   },
+    { "array",   TokenKind::kw_type_array },
   };
-
-  auto It = Keywords.find(Text.str());
-  if (It != Keywords.end())
-    return It->second;
-
-  return TokenKind::identifier;
+  auto It = KW.find(T.str());
+  return (It != KW.end()) ? It->second : TokenKind::identifier;
 }
 
 Token Lexer::nextToken() {
   skipWhitespace();
 
-  if (Position >= Source.size())
-    return makeToken(TokenKind::eof, "");
+  if (Pos >= Source.size())
+    return makeToken(TokenKind::eof);
 
-  // Traiter les commentaires
-  while (peek() == '/' && peek(1) == '/') {
-    skipComment();
-    skipWhitespace();
+  // Line comments: //
+  if (peek() == '/' && peek(1) == '/') {
+    skipLineComment();
+    return nextToken();
   }
 
   char Ch = peek();
 
-  // Littéraux strings
-  if (Ch == '"')
-    return makeStringLiteral();
+  if (Ch == '"')  return lexStringLiteral();
+  if (std::isdigit(Ch)) return lexInteger();
+  if (std::isalpha(Ch) || Ch == '_') return lexIdentifier();
 
-  // Identifiants et keywords
-  if (std::isalpha(Ch) || Ch == '_')
-    return makeIdentifier();
-
-  // Nombres
-  if (std::isdigit(Ch))
-    return makeNumber();
-
-  // Caractères spéciaux
-  advance();
+  advance(); // consume the character
 
   switch (Ch) {
-  case '(':
-    return makeToken(TokenKind::l_paren, "(");
-  case ')':
-    return makeToken(TokenKind::r_paren, ")");
-  case '[':
-    return makeToken(TokenKind::l_square, "[");
-  case ']':
-    return makeToken(TokenKind::r_square, "]");
-  case '<':
-    return makeToken(TokenKind::l_angle, "<");
-  case '>':
-    if (peek() == '=') {
-      advance();
-      return makeToken(TokenKind::arrow, "->");
-    }
-    return makeToken(TokenKind::r_angle, ">");
-  case '{':
-    return makeToken(TokenKind::l_brace, "{");
-  case '}':
-    return makeToken(TokenKind::r_brace, "}");
-  case ':':
-    return makeToken(TokenKind::colon, ":");
-  case ';':
-    return makeToken(TokenKind::semicolon, ";");
-  case ',':
-    return makeToken(TokenKind::comma, ",");
-  case '*':
-    return makeToken(TokenKind::star, "*");
-  case '=':
-    return makeToken(TokenKind::equals, "=");
-  case '#':
-    return makeToken(TokenKind::hash, "#");
-  case '-':
-    if (peek() == '>')
-      advance();
-    return makeToken(TokenKind::arrow, "->");
-  default:
-    return makeToken(TokenKind::unknown, StringRef(&Ch, 1));
+    // *** triple-star (module path separator)
+    case '*':
+      if (peek() == '*' && peek(1) == '*') {
+        advance(); advance();
+        return makeToken(TokenKind::triple_star, "***");
+      }
+      return makeToken(TokenKind::star, "*");
+
+    case '(': return makeToken(TokenKind::l_paren,  "(");
+    case ')': return makeToken(TokenKind::r_paren,  ")");
+    case '[': return makeToken(TokenKind::l_square, "[");
+    case ']': return makeToken(TokenKind::r_square, "]");
+    case '<':
+      if (peek() == '<') { advance(); return makeToken(TokenKind::lessless, "<<"); }
+      if (peek() == '=') { advance(); return makeToken(TokenKind::lessequal, "<="); }
+      return makeToken(TokenKind::l_angle, "<");
+    case '>':
+      if (peek() == '>') { advance(); return makeToken(TokenKind::greatergreater, ">>"); }
+      if (peek() == '=') { advance(); return makeToken(TokenKind::greaterequal, ">="); }
+      return makeToken(TokenKind::r_angle, ">");
+    case ':': return makeToken(TokenKind::colon,  ":");
+    case ';': return makeToken(TokenKind::semi,   ";");
+    case ',': return makeToken(TokenKind::comma,  ",");
+    case '=':
+      if (peek() == '=') { advance(); return makeToken(TokenKind::equalequal, "=="); }
+      return makeToken(TokenKind::equals, "=");
+    case '.': return makeToken(TokenKind::dot, ".");
+    case '+': return makeToken(TokenKind::plus,  "+");
+    case '-':
+      if (peek() == '>') { advance(); return makeToken(TokenKind::arrow, "->"); }
+      return makeToken(TokenKind::minus, "-");
+    case '/': return makeToken(TokenKind::slash, "/");
+    case '%': return makeToken(TokenKind::percent, "%");
+    case '&':
+      if (peek() == '&') { advance(); return makeToken(TokenKind::ampamp, "&&"); }
+      return makeToken(TokenKind::amp, "&");
+    case '|':
+      if (peek() == '|') { advance(); return makeToken(TokenKind::pipepipe, "||"); }
+      return makeToken(TokenKind::pipe, "|");
+    case '^': return makeToken(TokenKind::caret,  "^");
+    case '~': return makeToken(TokenKind::tilde,  "~");
+    case '!':
+      if (peek() == '=') { advance(); return makeToken(TokenKind::exclaimequal, "!="); }
+      return makeToken(TokenKind::exclaim, "!");
+    case '#': return makeToken(TokenKind::hash, "#");
+    default:  return makeToken(TokenKind::unknown, std::string(1, Ch));
   }
 }
 
 std::vector<Token> Lexer::tokenize() {
+  Tokens.clear();
   Token T = nextToken();
-
   while (T.Kind != TokenKind::eof) {
     Tokens.push_back(T);
     T = nextToken();
   }
-
-  Tokens.push_back(T); // EOF token
+  Tokens.push_back(T);
   return Tokens;
 }
 
 void Lexer::printTokens() const {
-  for (const auto &T : Tokens) {
-    errs() << "Token: " << (int)T.Kind << " Value: " << T.Value << "\n";
-  }
+  for (const auto &T : Tokens)
+    errs() << "Tok[" << T.Line << ":" << T.Column << "] "
+           << (int)T.Kind << " = " << T.Value << "\n";
 }

@@ -1,45 +1,36 @@
-//___
-//___ ObtInfo.mara – Process ID Information
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Retourne le PID du processus courant ainsi que d’autres
-//___     informations utiles (UID, GID, nombre de threads, …).
-//___     Cette version utilise les API natives de Slura OS.
-//___
+//===================================================================
+//  ObtInfo.mara – Process ID Information
+//  Module : base/MaratineKit/PIDActivity
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Retourne le PID du processus courant ainsi que des
+//      informations associées (UID, nombre de threads).
+//      Utilise les APIs natives de Slura via DrvAPIInterCon.
+//===================================================================
 
 #base <MaratineKit>;
-#include "llvm/Support/Process.h"   // LLVM Process API
-#include "llvm/Support/Errc.h"      // For error handling (optional)
-#include <unistd.h>                 // Still needed for getuid/getgid (POSIX)
+#include "llvm/Support/Process.h"
 
 using namespace llvm::sys;
 
-//___
-//___ Get the current process ID
-//___
-rel cl GetPID: <> [
-    let pid i32 = static_cast<i32>(Process::GetProcessId());
-    log: "Current PID: " + pid;
+// GetPID – retourne le PID du processus courant
+rel cl GetPID: [] [
+    let pid: <i32> = <DrvAPIInterCon***ProcessGetPID***()>;
+    log: "PIDActivity: PID = " + pid;
     ret pid;
 ];
 
-//___
-//___ Get the real user ID of the process
-//___
-rel cl GetUID: <> [
-    let uid i32 = static_cast<i32>(::getuid());   // POSIX getuid – LLVM does not wrap this
-    log: "Current UID: " + uid;
+// GetUID – retourne l'UID du processus courant
+rel cl GetUID: [] [
+    let uid: <i32> = <DrvAPIInterCon***ProcessGetUID***()>;
+    log: "PIDActivity: UID = " + uid;
     ret uid;
 ];
 
-//___
-//___ Get the number of threads in the current process (Slura OS)
-//___
-rel cl GetThreadCount: <> [
-    // LLVM provides Process::GetNumberOfThreads (returns unsigned)
-    let count i32 = static_cast<i32>(Process::GetNumberOfThreads());
-    log: "Thread count: " + count;
+// GetThreadCount – retourne le nombre de threads actifs
+rel cl GetThreadCount: [] [
+    let count: <i32> = <DrvAPIInterCon***ProcessGetThreadCount***()>;
+    log: "PIDActivity: threads = " + count;
     ret count;
 ];

@@ -1,0 +1,163 @@
+//===================================================================
+//  MGCParticle.mara – Maratine Graphical Compute — Particle System
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Système de particules entièrement GPU-driven (compute + indirect).
+//      Émetteurs : ponctuel, volumétrique, mesh surface, trail.
+//      Effets : feu, fumée, pluie, explosion, étincelles, eau.
+//      1 000 000 particules simultanées via SSBO.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+#base <MaratineKit***MGC***MGCCompute>;
+#base <MaratineKit***MGC***MGCTexture>;
+
+let EMITTER_POINT:   <i32> = 0;
+let EMITTER_VOLUME:  <i32> = 1;
+let EMITTER_MESH:    <i32> = 2;
+let EMITTER_TRAIL:   <i32> = 3;
+
+let PRESET_FIRE:       <i32> = 0;
+let PRESET_SMOKE:      <i32> = 1;
+let PRESET_RAIN:       <i32> = 2;
+let PRESET_EXPLOSION:  <i32> = 3;
+let PRESET_SPARKS:     <i32> = 4;
+let PRESET_WATER:      <i32> = 5;
+let PRESET_DUST:       <i32> = 6;
+
+let MAX_EMITTERS:  <i32> = 128;
+let MAX_PARTICLES: <i32> = 1000000;
+
+let PART_OK:          <i32> = 0;
+let PART_ERR_FULL:    <i32> = -1;
+let PART_ERR_INVALID: <i32> = -2;
+let PART_ERR_NOENT:   <i32> = -3;
+
+var _emitterNames:    <array> = [null;    MAX_EMITTERS];
+var _emitterSSBOs:    <array> = [nullptr; MAX_EMITTERS];
+var _emitterTypes:    <array> = [0;       MAX_EMITTERS];
+var _emitterRates:    <array> = [0;       MAX_EMITTERS];
+var _emitterEnabled:  <array> = [1;       MAX_EMITTERS];
+var _emitterCount:    <i32>   = 0;
+var _globalSSBO:      <ptr>   = nullptr;
+
+// Cherche un émetteur (privé)
+rel cl _findEmitter: [name string] [
+    var i: <i32> = 0;
+    loop i < _emitterCount [
+        if (_emitterNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Init – alloue le SSBO global des particules
+rel op Init: [] [
+    // Chaque particule : position(12) + velocity(12) + color(16) + life(4) + size(4) = 48 octets
+    _globalSSBO = <DrvAPIInterCon***GpuSSBOCreate***>(MAX_PARTICLES * 48);
+    if (_globalSSBO == nullptr) [ ret PART_ERR_INVALID; ];
+    log: "MGCParticle: " + MAX_PARTICLES + " particules GPU allouées";
+    ret PART_OK;
+];
+
+// CreateEmitter – crée un émetteur de particules
+rel op CreateEmitter: [name string, emitterType i32, ratePerSec i32] [
+    if (name == null) [ ret PART_ERR_INVALID; ];
+    if (_emitterCount >= MAX_EMITTERS) [ ret PART_ERR_FULL; ];
+
+    let ssbo: <ptr> = <DrvAPIInterCon***GpuSSBOCreate***>(ratePerSec * 10 * 48);
+    if (ssbo == nullptr) [ ret PART_ERR_INVALID; ];
+
+    _emitterNames[_emitterCount]   = name;
+    _emitterSSBOs[_emitterCount]   = ssbo;
+    _emitterTypes[_emitterCount]   = emitterType;
+    _emitterRates[_emitterCount]   = ratePerSec;
+    _emitterEnabled[_emitterCount] = 1;
+    _emitterCount = _emitterCount + 1;
+    ret PART_OK;
+];
+
+// CreateFromPreset – crée un émetteur depuis un preset prédéfini
+rel op CreateFromPreset: [name string, presetId i32, position ptr] [
+    if (name == null) [ ret PART_ERR_INVALID; ];
+
+    var rate: <i32> = 100;
+    var eType: <i32> = EMITTER_POINT;
+
+    if (presetId == PRESET_FIRE)      [ rate = 500;  eType = EMITTER_VOLUME; ];
+    if (presetId == PRESET_SMOKE)     [ rate = 80;   eType = EMITTER_VOLUME; ];
+    if (presetId == PRESET_RAIN)      [ rate = 2000; eType = EMITTER_VOLUME; ];
+    if (presetId == PRESET_EXPLOSION) [ rate = 5000; eType = EMITTER_POINT; ];
+    if (presetId == PRESET_SPARKS)    [ rate = 300;  eType = EMITTER_POINT; ];
+    if (presetId == PRESET_WATER)     [ rate = 1000; eType = EMITTER_MESH; ];
+    if (presetId == PRESET_DUST)      [ rate = 150;  eType = EMITTER_VOLUME; ];
+
+    let result: <i32> = CreateEmitter(name, eType, rate);
+    if (result != PART_OK) [ ret result; ];
+
+    let idx: <i32> = _findEmitter(name);
+    let _: <i32> = <DrvAPIInterCon***GpuSSBOSetVec3***>(_emitterSSBOs[idx], "u_Position", position);
+    let _: <i32> = <DrvAPIInterCon***ParticlePresetInit***>(_emitterSSBOs[idx], presetId);
+    ret PART_OK;
+];
+
+// Tick – simule et émet les particules pour tous les émetteurs actifs
+rel op Tick: [deltaMs i32] [
+    var i: <i32> = 0;
+    loop i < _emitterCount [
+        if (_emitterEnabled[i] != 0) [
+            let _: <i32> = <MGCCompute***DispatchParticles***>(
+                _emitterSSBOs[i],
+                _emitterRates[i] * deltaMs / 1000 + 1,
+                deltaMs
+            );
+        ];
+        i = i + 1;
+    ];
+    ret PART_OK;
+];
+
+// SetEnabled – active ou désactive un émetteur
+rel op SetEnabled: [name string, enabled i32] [
+    let idx: <i32> = _findEmitter(name);
+    if (idx == -1) [ ret PART_ERR_NOENT; ];
+    _emitterEnabled[idx] = enabled;
+    ret PART_OK;
+];
+
+// SetPosition – déplace un émetteur
+rel op SetPosition: [name string, posVec ptr] [
+    let idx: <i32> = _findEmitter(name);
+    if (idx == -1) [ ret PART_ERR_NOENT; ];
+    ret <DrvAPIInterCon***GpuSSBOSetVec3***>(_emitterSSBOs[idx], "u_Position", posVec);
+];
+
+// SetRate – modifie le taux d'émission
+rel op SetRate: [name string, ratePerSec i32] [
+    let idx: <i32> = _findEmitter(name);
+    if (idx == -1) [ ret PART_ERR_NOENT; ];
+    _emitterRates[idx] = ratePerSec;
+    ret PART_OK;
+];
+
+// Burst – émission instantanée d'une rafale de count particules
+rel op Burst: [name string, count i32] [
+    let idx: <i32> = _findEmitter(name);
+    if (idx == -1) [ ret PART_ERR_NOENT; ];
+    ret <MGCCompute***DispatchParticles***>(_emitterSSBOs[idx], count, 0);
+];
+
+// DestroyEmitter – supprime un émetteur
+rel op DestroyEmitter: [name string] [
+    let idx: <i32> = _findEmitter(name);
+    if (idx == -1) [ ret PART_ERR_NOENT; ];
+    let _: <i32> = <DrvAPIInterCon***GpuSSBODestroy***>(_emitterSSBOs[idx]);
+    _emitterNames[idx]   = null;
+    _emitterSSBOs[idx]   = nullptr;
+    _emitterCount = _emitterCount - 1;
+    ret PART_OK;
+];

@@ -1,0 +1,159 @@
+//===================================================================
+//  MaraFS.mara – File System API
+//  Module : base/std/fs
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      API système de fichiers pour Slura/Lunée.
+//      Notation SDC (C:) — stockage eMMC principal.
+//      Accès sécurisé via PAccessAuth.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***core***self***RegistrationRoot***[ PAccessAuth ]>;
+#include "llvm/Support/FileSystem.h"
+
+let DRIVE_SDC:    <string> = "C:";
+let DRIVE_SDCARD: <string> = "D:";
+let DRIVE_TEMP:   <string> = "T:";
+
+let MODE_READ:   <i32> = 0;
+let MODE_WRITE:  <i32> = 1;
+let MODE_APPEND: <i32> = 2;
+let MODE_CREATE: <i32> = 3;
+
+let FS_OK:            <i32> = 0;
+let FS_ERR_NOT_FOUND: <i32> = -1;
+let FS_ERR_PERM:      <i32> = -2;
+let FS_ERR_EXISTS:    <i32> = -3;
+let FS_ERR_IO:        <i32> = -4;
+let FS_ERR_FULL:      <i32> = -5;
+let FS_ERR_INVALID:   <i32> = -6;
+let FS_ERR_NO_AUTH:   <i32> = -7;
+
+var _openHandles: <i32> = 0;
+var _maxHandles:  <i32> = 256;
+
+// Normalise un chemin SDC vers un chemin natif Lunée (privé)
+rel cl _normalizePath: [path string] [
+    if (path == "" || path == null) [ ret ""; ];
+    if (path.startsWith("C:")) [ ret "/slura/emmc" + path.substring(2, path.length()); ];
+    if (path.startsWith("D:")) [ ret "/slura/sdcard" + path.substring(2, path.length()); ];
+    if (path.startsWith("T:")) [ ret "/slura/tmp"  + path.substring(2, path.length()); ];
+    if (path.startsWith("/")) [ ret path; ];
+    ret "/slura/emmc/" + path;
+];
+
+// Exists – vérifie si un fichier ou répertoire existe
+rel op Exists: [path string] [
+    let norm: <string> = _normalizePath(path);
+    if (norm == "") [ ret false; ];
+    ret sys::fs::exists(norm);
+];
+
+// Read – lit le contenu complet d'un fichier
+rel op Read: [path string] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret nullptr; ];
+    let norm: <string> = _normalizePath(path);
+    if (!sys::fs::exists(norm)) [ ret nullptr; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***FSOpen***>(norm, MODE_READ);
+    if (handle == nullptr) [ ret nullptr; ];
+
+    _openHandles = _openHandles + 1;
+    let data: <ptr> = <DrvAPIInterCon***FSReadAll***>(handle);
+    let _: <i32> = <DrvAPIInterCon***FSClose***>(handle);
+    _openHandles = _openHandles - 1;
+    ret data;
+];
+
+// ReadLine – lit la prochaine ligne d'un handle ouvert
+rel op ReadLine: [handle ptr] [
+    if (handle == nullptr) [ ret null; ];
+    ret <DrvAPIInterCon***FSReadLine***>(handle);
+];
+
+// Write – écrit data dans un fichier (crée si inexistant)
+rel op Write: [path string, data ptr, size i32] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret FS_ERR_NO_AUTH; ];
+    if (path == "" || data == nullptr || size <= 0) [ ret FS_ERR_INVALID; ];
+
+    let norm: <string> = _normalizePath(path);
+    let handle: <ptr> = <DrvAPIInterCon***FSOpen***>(norm, MODE_WRITE);
+    if (handle == nullptr) [ ret FS_ERR_IO; ];
+
+    _openHandles = _openHandles + 1;
+    let written: <i32> = <DrvAPIInterCon***FSWrite***>(handle, data, size);
+    let _: <i32> = <DrvAPIInterCon***FSClose***>(handle);
+    _openHandles = _openHandles - 1;
+
+    if (written != size) [ ret FS_ERR_IO; ];
+    ret FS_OK;
+];
+
+// Append – ajoute data à la fin d'un fichier existant
+rel op Append: [path string, data ptr, size i32] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret FS_ERR_NO_AUTH; ];
+    if (path == "" || data == nullptr || size <= 0) [ ret FS_ERR_INVALID; ];
+
+    let norm: <string> = _normalizePath(path);
+    let handle: <ptr> = <DrvAPIInterCon***FSOpen***>(norm, MODE_APPEND);
+    if (handle == nullptr) [ ret FS_ERR_IO; ];
+
+    _openHandles = _openHandles + 1;
+    let written: <i32> = <DrvAPIInterCon***FSWrite***>(handle, data, size);
+    let _: <i32> = <DrvAPIInterCon***FSClose***>(handle);
+    _openHandles = _openHandles - 1;
+
+    if (written != size) [ ret FS_ERR_IO; ];
+    ret FS_OK;
+];
+
+// Delete – supprime un fichier
+rel op Delete: [path string] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret FS_ERR_NO_AUTH; ];
+    let norm: <string> = _normalizePath(path);
+    if (!sys::fs::exists(norm)) [ ret FS_ERR_NOT_FOUND; ];
+    let result: <i32> = <DrvAPIInterCon***FSDelete***>(norm);
+    if (result != 0) [ ret FS_ERR_IO; ];
+    ret FS_OK;
+];
+
+// MakeDir – crée un répertoire (avec parents)
+rel op MakeDir: [path string] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret FS_ERR_NO_AUTH; ];
+    let norm: <string> = _normalizePath(path);
+    if (sys::fs::exists(norm)) [ ret FS_ERR_EXISTS; ];
+    let result: <i32> = <DrvAPIInterCon***FSMkDir***>(norm, true);
+    if (result != 0) [ ret FS_ERR_IO; ];
+    ret FS_OK;
+];
+
+// Move – déplace ou renomme un fichier
+rel op Move: [src string, dst string] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret FS_ERR_NO_AUTH; ];
+    let normSrc: <string> = _normalizePath(src);
+    let normDst: <string> = _normalizePath(dst);
+    if (!sys::fs::exists(normSrc)) [ ret FS_ERR_NOT_FOUND; ];
+    let result: <i32> = <DrvAPIInterCon***FSMove***>(normSrc, normDst);
+    if (result != 0) [ ret FS_ERR_IO; ];
+    ret FS_OK;
+];
+
+// GetFreeSpace – espace disponible en octets sur le lecteur
+rel op GetFreeSpace: [drive string] [
+    let norm: <string> = _normalizePath(drive);
+    ret <DrvAPIInterCon***FSGetFreeSpace***>(norm);
+];
+
+// GetSize – taille d'un fichier en octets
+rel op GetSize: [path string] [
+    let norm: <string> = _normalizePath(path);
+    if (!sys::fs::exists(norm)) [ ret -1; ];
+    ret <DrvAPIInterCon***FSGetSize***>(norm);
+];
+
+// GetOpenHandleCount – nombre de handles ouverts
+rel op GetOpenHandleCount: [] [
+    ret _openHandles;
+];

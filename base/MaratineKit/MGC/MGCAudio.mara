@@ -1,0 +1,197 @@
+//===================================================================
+//  MGCAudio.mara – Maratine Graphical Compute — Spatial Audio Engine
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Moteur audio 3D spatial (HRTF binaurale) pour Slura.
+//      64 sources simultanées, mixeur PCM 32 bits, DSP (EQ, réverb,
+//      compression), streaming AAC, occlusion et atténuation distance.
+//      Sortie : haut-parleur montre + casque Bluetooth A2DP.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <std***fs***[ MaraFS ]>;
+
+let AUDIO_OUT_SPEAKER: <i32> = 0;
+let AUDIO_OUT_BT_A2DP: <i32> = 1;
+let AUDIO_OUT_USB:     <i32> = 2;
+
+let SRC_TYPE_STATIC:   <i32> = 0;
+let SRC_TYPE_STREAM:   <i32> = 1;
+
+let MAX_SOURCES:    <i32> = 64;
+let MAX_BUSES:      <i32> = 8;
+let SAMPLE_RATE:    <i32> = 48000;
+let BUFFER_SIZE_MS: <i32> = 20;
+
+let AUDIO_OK:           <i32> = 0;
+let AUDIO_ERR_LOAD:     <i32> = -1;
+let AUDIO_ERR_FULL:     <i32> = -2;
+let AUDIO_ERR_INVALID:  <i32> = -3;
+let AUDIO_ERR_NOT_FOUND:<i32> = -4;
+let AUDIO_ERR_OUT:      <i32> = -5;
+
+var _srcNames:    <array> = [null;    MAX_SOURCES];
+var _srcHandles:  <array> = [nullptr; MAX_SOURCES];
+var _srcTypes:    <array> = [0;       MAX_SOURCES];
+var _srcVolumes:  <array> = [100;     MAX_SOURCES];
+var _srcPlaying:  <array> = [0;       MAX_SOURCES];
+var _srcLooping:  <array> = [0;       MAX_SOURCES];
+var _srcCount:    <i32>   = 0;
+var _masterVol:   <i32>   = 100;
+var _outputMode:  <i32>   = AUDIO_OUT_SPEAKER;
+var _hrtfEnabled: <i32>   = 1;
+var _reverbWet:   <i32>   = 20;
+var _initialized: <i32>   = 0;
+
+// Cherche une source (privé)
+rel cl _findSrc: [name string] [
+    var i: <i32> = 0;
+    loop i < _srcCount [
+        if (_srcNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Init – initialise le moteur audio
+rel op Init: [outputMode i32] [
+    if (_initialized != 0) [ ret AUDIO_OK; ];
+
+    _outputMode = outputMode;
+    let result: <i32> = <DrvAPIInterCon***AudioInit***>(SAMPLE_RATE, BUFFER_SIZE_MS, outputMode);
+    if (result != 0) [ ret AUDIO_ERR_OUT; ];
+
+    if (_hrtfEnabled != 0) [
+        let _: <i32> = <DrvAPIInterCon***AudioLoadHRTF***>("C:\MGC\Audio\hrtf_default.sofa");
+    ];
+
+    _initialized = 1;
+    log: "MGCAudio: " + SAMPLE_RATE + " Hz — " + BUFFER_SIZE_MS + " ms buffer";
+    ret AUDIO_OK;
+];
+
+// Load – charge un fichier PCM/AAC en mémoire comme source statique
+rel op Load: [name string, path string] [
+    if (name == null || path == null) [ ret AUDIO_ERR_INVALID; ];
+    if (_findSrc(name) != -1) [ ret AUDIO_OK; ];
+    if (_srcCount >= MAX_SOURCES) [ ret AUDIO_ERR_FULL; ];
+
+    let rawData: <ptr> = <MaraFS***Read***>(path);
+    if (rawData == nullptr) [ ret AUDIO_ERR_LOAD; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***AudioBufCreate***>(rawData);
+    if (handle == nullptr) [ ret AUDIO_ERR_LOAD; ];
+
+    _srcNames[_srcCount]   = name;
+    _srcHandles[_srcCount] = handle;
+    _srcTypes[_srcCount]   = SRC_TYPE_STATIC;
+    _srcVolumes[_srcCount] = 100;
+    _srcPlaying[_srcCount] = 0;
+    _srcLooping[_srcCount] = 0;
+    _srcCount = _srcCount + 1;
+    ret AUDIO_OK;
+];
+
+// LoadStream – crée une source streaming pour la musique (AAC)
+rel op LoadStream: [name string, path string] [
+    if (name == null || path == null) [ ret AUDIO_ERR_INVALID; ];
+    if (_srcCount >= MAX_SOURCES) [ ret AUDIO_ERR_FULL; ];
+
+    let handle: <ptr> = <DrvAPIInterCon***AudioStreamCreate***>(path);
+    if (handle == nullptr) [ ret AUDIO_ERR_LOAD; ];
+
+    _srcNames[_srcCount]   = name;
+    _srcHandles[_srcCount] = handle;
+    _srcTypes[_srcCount]   = SRC_TYPE_STREAM;
+    _srcVolumes[_srcCount] = 100;
+    _srcCount = _srcCount + 1;
+    ret AUDIO_OK;
+];
+
+// Play3D – joue une source avec position 3D spatiale HRTF
+rel op Play3D: [name string, posVec ptr, velVec ptr, loop i32] [
+    let idx: <i32> = _findSrc(name);
+    if (idx == -1) [ ret AUDIO_ERR_NOT_FOUND; ];
+
+    _srcLooping[idx] = loop;
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetPosition***>(_srcHandles[idx], posVec);
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetVelocity***>(_srcHandles[idx], velVec);
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetVolume***>(_srcHandles[idx], _srcVolumes[idx]);
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetLoop***>(_srcHandles[idx], loop);
+    let result: <i32> = <DrvAPIInterCon***AudioSrcPlay***>(_srcHandles[idx]);
+    _srcPlaying[idx] = (result == 0);
+    ret result;
+];
+
+// Play2D – joue une source 2D (UI, musique, narration)
+rel op Play2D: [name string, loop i32] [
+    let idx: <i32> = _findSrc(name);
+    if (idx == -1) [ ret AUDIO_ERR_NOT_FOUND; ];
+
+    _srcLooping[idx] = loop;
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetVolume***>(_srcHandles[idx], _srcVolumes[idx]);
+    let _: <i32> = <DrvAPIInterCon***AudioSrcSetLoop***>(_srcHandles[idx], loop);
+    let result: <i32> = <DrvAPIInterCon***AudioSrcPlay***>(_srcHandles[idx]);
+    _srcPlaying[idx] = (result == 0);
+    ret result;
+];
+
+// Stop – stoppe une source
+rel op Stop: [name string] [
+    let idx: <i32> = _findSrc(name);
+    if (idx == -1) [ ret AUDIO_ERR_NOT_FOUND; ];
+    let _: <i32> = <DrvAPIInterCon***AudioSrcStop***>(_srcHandles[idx]);
+    _srcPlaying[idx] = 0;
+    ret AUDIO_OK;
+];
+
+// SetVolume – volume 0–100 pour une source
+rel op SetVolume: [name string, vol i32] [
+    if (vol < 0 || vol > 100) [ ret AUDIO_ERR_INVALID; ];
+    let idx: <i32> = _findSrc(name);
+    if (idx == -1) [ ret AUDIO_ERR_NOT_FOUND; ];
+    _srcVolumes[idx] = vol;
+    ret <DrvAPIInterCon***AudioSrcSetVolume***>(_srcHandles[idx], vol);
+];
+
+// SetListenerTransform – met à jour la position/orientation de l'auditeur (caméra)
+rel op SetListenerTransform: [posVec ptr, forwardVec ptr, upVec ptr] [
+    ret <DrvAPIInterCon***AudioSetListener***>(posVec, forwardVec, upVec);
+];
+
+// SetReverb – wet level 0–100 pour la réverbération globale
+rel op SetReverb: [wetLevel i32] [
+    if (wetLevel < 0 || wetLevel > 100) [ ret AUDIO_ERR_INVALID; ];
+    _reverbWet = wetLevel;
+    ret <DrvAPIInterCon***AudioSetReverb***>(wetLevel);
+];
+
+// SetMasterVolume – volume master 0–100
+rel op SetMasterVolume: [vol i32] [
+    if (vol < 0 || vol > 100) [ ret AUDIO_ERR_INVALID; ];
+    _masterVol = vol;
+    ret <DrvAPIInterCon***AudioSetMasterVolume***>(vol);
+];
+
+// Unload – libère une source audio
+rel op Unload: [name string] [
+    let idx: <i32> = _findSrc(name);
+    if (idx == -1) [ ret AUDIO_ERR_NOT_FOUND; ];
+    let _: <i32> = <DrvAPIInterCon***AudioBufDestroy***>(_srcHandles[idx]);
+    _srcNames[idx]   = null;
+    _srcHandles[idx] = nullptr;
+    _srcCount = _srcCount - 1;
+    ret AUDIO_OK;
+];
+
+// Shutdown – ferme le moteur audio
+rel op Shutdown: [] [
+    if (_initialized == 0) [ ret AUDIO_OK; ];
+    let _: <i32> = <DrvAPIInterCon***AudioShutdown***()>;
+    _initialized = 0;
+    _srcCount    = 0;
+    ret AUDIO_OK;
+];

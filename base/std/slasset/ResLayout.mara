@@ -1,0 +1,104 @@
+//===================================================================
+//  ResLayout.mara – Layout Asset Registry
+//  Module : base/std/slasset
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Registre des fichiers de layout XML pour les bundles Maratine.
+//      Charge, indexe et fournit un accès aux layouts AMOLED
+//      (fond #000000, 454×454 px) depuis les répertoires res/.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***fs***MaraFS>;
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
+
+using namespace llvm;
+
+let MAX_LAYOUTS:      <i32> = 64;
+let LAYOUT_SUFFIX:    <string> = "ResLayout.xml";
+let DEFAULT_LAYOUT:   <string> = "C:/res/ResLayout.xml";
+
+let RESLAYOUT_OK:         <i32> = 0;
+let RESLAYOUT_ERR_FULL:   <i32> = -1;
+let RESLAYOUT_ERR_DUP:    <i32> = -2;
+let RESLAYOUT_ERR_NOFILE: <i32> = -3;
+let RESLAYOUT_ERR_INVALID:<i32> = -4;
+
+var _layoutNames: <array> = [null; MAX_LAYOUTS];
+var _layoutPaths: <array> = [null; MAX_LAYOUTS];
+var _layoutCount: <i32>   = 0;
+
+// Recherche d'un layout par nom (privé)
+rel cl _FindLayout: [name string] [
+    if (name == "" || name == null) [ ret -1; ];
+    var i: <i32> = 0;
+    loop i < _layoutCount [
+        if (_layoutNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Register – enregistre un layout dans le registre
+rel op Register: [name string, path string] [
+    if (name == "" || name == null) [ ret RESLAYOUT_ERR_INVALID; ];
+    if (path == "" || path == null) [ ret RESLAYOUT_ERR_INVALID; ];
+    if (_FindLayout(name) != -1) [ ret RESLAYOUT_ERR_DUP; ];
+    if (_layoutCount >= MAX_LAYOUTS) [ ret RESLAYOUT_ERR_FULL; ];
+
+    if (!sys::fs::exists(path)) [
+        log: "ResLayout: fichier introuvable – " + path;
+        ret RESLAYOUT_ERR_NOFILE;
+    ];
+
+    _layoutNames[_layoutCount] = name;
+    _layoutPaths[_layoutCount] = path;
+    _layoutCount = _layoutCount + 1;
+
+    log: "ResLayout: enregistré " + name + " → " + path;
+    ret RESLAYOUT_OK;
+];
+
+// GetPath – retourne le chemin d'un layout enregistré
+rel op GetPath: [name string] [
+    let idx: <i32> = _FindLayout(name);
+    if (idx == -1) [ ret ""; ];
+    ret _layoutPaths[idx];
+];
+
+// GetDefault – retourne le chemin du layout par défaut
+rel op GetDefault: [] [
+    if (_layoutCount == 0) [ ret DEFAULT_LAYOUT; ];
+    ret _layoutPaths[0];
+];
+
+// Exists – vérifie si un layout est enregistré
+rel op Exists: [name string] [
+    ret (_FindLayout(name) != -1);
+];
+
+// Count – nombre de layouts enregistrés
+rel op Count: [] [
+    ret _layoutCount;
+];
+
+// Unregister – retire un layout du registre
+rel op Unregister: [name string] [
+    let idx: <i32> = _FindLayout(name);
+    if (idx == -1) [ ret RESLAYOUT_ERR_INVALID; ];
+
+    var j: <i32> = idx;
+    loop j < (_layoutCount - 1) [
+        _layoutNames[j] = _layoutNames[j + 1];
+        _layoutPaths[j] = _layoutPaths[j + 1];
+        j = j + 1;
+    ];
+
+    _layoutNames[_layoutCount - 1] = null;
+    _layoutPaths[_layoutCount - 1] = null;
+    _layoutCount = _layoutCount - 1;
+
+    ret RESLAYOUT_OK;
+];

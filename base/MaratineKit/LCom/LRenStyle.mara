@@ -1,44 +1,34 @@
-//___
-//___ LRenStyle.mara – Layout rendering style utilities
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Fournit des fonctions pour définir et gérer les styles de rendu de mise en page (couleurs, marges, espacements, etc.).
+//===================================================================
+//  LRenStyle.mara – Layout Rendering Style
+//  Module : base/MaratineKit/LCom
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Fonctions de style de rendu UI : couleurs, marges, paddings.
+//===================================================================
 
-//___
+#base <MaratineKit>;
 
-#include <cstddef>
-
-//___
-//___ Set the background color for a layout element.
-//___
-rel op SetBackgroundColor: [element ptr, color u32] [
-    // Placeholder: actual implementation would interface with rendering system
-    log: "Setting background color of element to 0x" + color;
-    ret 0; // success
+// SetBackgroundColor – définit la couleur de fond d'un élément
+rel op SetBackgroundColor: [element ptr, color i32] [
+    let result: <i32> = <DrvAPIInterCon***UISetBgColor***>(element, color);
+    ret result;
 ];
 
-//___
-//___ Set the text color for a layout element.
-//___
-rel op SetTextColor: [element ptr, color u32] [
-    log: "Setting text color of element to 0x" + color;
-    ret 0;
+// SetTextColor – définit la couleur de texte d'un élément
+rel op SetTextColor: [element ptr, color i32] [
+    let result: <i32> = <DrvAPIInterCon***UISetTextColor***>(element, color);
+    ret result;
 ];
 
-//___
-//___ Set the margin (in pixels) for a layout element.
-//___
+// SetMargin – définit les marges d'un élément (px)
 rel op SetMargin: [element ptr, left i32, top i32, right i32, bottom i32] [
-    log: "Setting margin: left=" + left + ", top=" + top + ", right=" + right + ", bottom=" + bottom;
-    ret 0;
+    let result: <i32> = <DrvAPIInterCon***UISetMargin***>(element, left, top, right, bottom);
+    ret result;
 ];
 
-//___
-//___ Set the padding (in pixels) for a layout element.
-//___
+// SetPadding – définit le padding d'un élément (px)
 rel op SetPadding: [element ptr, left i32, top i32, right i32, bottom i32] [
-    log: "Setting padding: left=" + left + ", top=" + top + ", right=" + right + ", bottom=" + bottom;
-    ret 0;
+    let result: <i32> = <DrvAPIInterCon***UISetPadding***>(element, left, top, right, bottom);
+    ret result;
 ];

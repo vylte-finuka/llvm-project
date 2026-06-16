@@ -1,0 +1,172 @@
+//===================================================================
+//  MaraNet.mara – Network Stack
+//  Module : base/std/net
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Stack réseau Slura : LTE/eSIM (GSMA SGP.02), WiFi,
+//      Bluetooth et LoRa longue portée.
+//      Sélection automatique du meilleur réseau disponible.
+//      Fallback LoRa automatique sur batterie faible.
+//      Vyft Mobile = MVNO de démo uniquement (pas l'opérateur final).
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***core***self***RegistrationRoot***[ PAccessAuth ]>;
+
+let NET_NONE: <i32> = 0;
+let NET_LTE:  <i32> = 1;
+let NET_WIFI: <i32> = 2;
+let NET_BT:   <i32> = 3;
+let NET_LORA: <i32> = 4;
+
+let CONN_DISCONNECTED: <i32> = 0;
+let CONN_CONNECTING:   <i32> = 1;
+let CONN_CONNECTED:    <i32> = 2;
+let CONN_ERROR:        <i32> = -1;
+
+let NET_OK:            <i32> = 0;
+let NET_ERR_NO_AUTH:   <i32> = -1;
+let NET_ERR_NO_SIGNAL: <i32> = -2;
+let NET_ERR_TIMEOUT:   <i32> = -3;
+let NET_ERR_INVALID:   <i32> = -4;
+let NET_ERR_ESIM:      <i32> = -5;
+
+var _activeNet:      <i32>    = NET_NONE;
+var _connState:      <i32>    = CONN_DISCONNECTED;
+var _signalStrength: <i32>    = 0;
+var _apn:            <string> = "";
+var _iccid:          <string> = "";
+var _powerSave:      <i32>    = 0;
+var _rxBytes:        <i32>    = 0;
+var _txBytes:        <i32>    = 0;
+
+// Sélectionne le meilleur réseau disponible (privé)
+rel cl _selectBestNet: [] [
+    let wifiSig: <i32> = <DrvAPIInterCon***WifiGetSignal***()>;
+    if (wifiSig > 20) [ ret NET_WIFI; ];
+
+    let lteSig: <i32> = <DrvAPIInterCon***LteGetSignal***()>;
+    if (lteSig > 10) [ ret NET_LTE; ];
+
+    let loraSig: <i32> = <DrvAPIInterCon***LoRaGetSignal***()>;
+    if (loraSig > 0) [ ret NET_LORA; ];
+
+    ret NET_NONE;
+];
+
+// Init – initialise la stack avec un APN et un ICCID eSIM
+rel op Init: [apn string, iccid string] [
+    if (!<PAccessAuth***IsAuthorized***>(1)) [ ret NET_ERR_NO_AUTH; ];
+    if (apn == "" || apn == null) [ ret NET_ERR_INVALID; ];
+
+    _apn   = apn;
+    _iccid = iccid;
+
+    if (iccid != "" && iccid != null) [
+        let esimResult: <i32> = <DrvAPIInterCon***ESimInit***>(iccid);
+        if (esimResult != 0) [ ret NET_ERR_ESIM; ];
+    ];
+
+    ret NET_OK;
+];
+
+// Connect – connexion sur le meilleur réseau
+rel op Connect: [] [
+    _connState = CONN_CONNECTING;
+    let net: <i32> = _selectBestNet();
+
+    if (net == NET_NONE) [
+        _connState = CONN_ERROR;
+        ret NET_ERR_NO_SIGNAL;
+    ];
+
+    var result: <i32> = 0;
+    if (net == NET_WIFI) [ result = <DrvAPIInterCon***WifiConnect***>(_apn); ];
+    if (net == NET_LTE)  [ result = <DrvAPIInterCon***LteConnect***>(_apn, _iccid); ];
+    if (net == NET_LORA) [ result = <DrvAPIInterCon***LoRaConnect***>(_apn); ];
+
+    if (result != 0) [
+        _connState = CONN_ERROR;
+        ret NET_ERR_TIMEOUT;
+    ];
+
+    _activeNet = net;
+    _connState = CONN_CONNECTED;
+    _signalStrength = <DrvAPIInterCon***NetGetSignal***>(net);
+    ret NET_OK;
+];
+
+// ConnectWifi – connexion WiFi explicite
+rel op ConnectWifi: [ssid string, password string] [
+    let result: <i32> = <DrvAPIInterCon***WifiConnectSSID***>(ssid, password);
+    if (result != 0) [ ret NET_ERR_TIMEOUT; ];
+    _activeNet = NET_WIFI;
+    _connState = CONN_CONNECTED;
+    ret NET_OK;
+];
+
+// Disconnect – ferme la connexion active
+rel op Disconnect: [] [
+    if (_connState == CONN_DISCONNECTED) [ ret NET_OK; ];
+    let _: <i32> = <DrvAPIInterCon***NetDisconnect***>(_activeNet);
+    _connState = CONN_DISCONNECTED;
+    _activeNet = NET_NONE;
+    _signalStrength = 0;
+    ret NET_OK;
+];
+
+// HttpGet – requête HTTP GET, retourne le body ou nullptr
+rel op HttpGet: [url string] [
+    if (_connState != CONN_CONNECTED) [ ret nullptr; ];
+    if (url == "" || url == null) [ ret nullptr; ];
+    let resp: <ptr> = <DrvAPIInterCon***HttpGet***>(url);
+    if (resp != nullptr) [ _rxBytes = _rxBytes + <DrvAPIInterCon***HttpGetSize***>(resp); ];
+    ret resp;
+];
+
+// HttpPost – requête HTTP POST avec body
+rel op HttpPost: [url string, body ptr, size i32] [
+    if (_connState != CONN_CONNECTED) [ ret nullptr; ];
+    if (url == "" || url == null) [ ret nullptr; ];
+    _txBytes = _txBytes + size;
+    ret <DrvAPIInterCon***HttpPost***>(url, body, size);
+];
+
+// GetSignal – force du signal 0–100
+rel op GetSignal: [] [
+    if (_connState != CONN_CONNECTED) [ ret 0; ];
+    _signalStrength = <DrvAPIInterCon***NetGetSignal***>(_activeNet);
+    ret _signalStrength;
+];
+
+// GetActiveNet – type de réseau actif (NET_NONE si déconnecté)
+rel op GetActiveNet: [] [
+    ret _activeNet;
+];
+
+// IsConnected – retourne vrai si connecté
+rel op IsConnected: [] [
+    ret (_connState == CONN_CONNECTED);
+];
+
+// SetPowerSave – mode économie d'énergie (bascule sur LoRa si signal OK)
+rel op SetPowerSave: [enabled i32] [
+    _powerSave = enabled;
+    if (enabled != 0 && _activeNet == NET_LTE) [
+        let loraSig: <i32> = <DrvAPIInterCon***LoRaGetSignal***()>;
+        if (loraSig > 0) [
+            let _: <i32> = Disconnect();
+            let _: <i32> = <DrvAPIInterCon***LoRaConnect***>(_apn);
+            _activeNet = NET_LORA;
+            _connState = CONN_CONNECTED;
+        ];
+    ];
+    ret NET_OK;
+];
+
+// GetStats – [rxBytes, txBytes, signal, netType]
+rel op GetStats: [] [
+    let stats: <array> = [ _rxBytes; _txBytes; _signalStrength; _activeNet ];
+    ret stats;
+];

@@ -1,39 +1,34 @@
-//===--- MaratineASTConsumer.h - AST consumer for Maratine frontend ----===//
+//===--- MaratineCodeGenAction.h - Code generation action for Maratine --===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_FRONTEND_MARATINE_MARATINEASTCONSUMER_H
-#define LLVM_FRONTEND_MARATINE_MARATINEASTCONSUMER_H
+#ifndef LLVM_FRONTEND_MARATINE_MARATINECODEGENACTION_H
+#define LLVM_FRONTEND_MARATINE_MARATINECODEGENACTION_H
 
-#include "clang/AST/ASTConsumer.h"
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/CodeGen/CodeGenAction.h"
+#include "clang/Frontend/CompilerInstance.h"
 
 namespace clang {
 namespace maratine {
 
-class MaratineASTConsumer : public ASTConsumer {
+// Drives LLVM IR emission for Mara source files.
+// Extends ASTFrontendAction so the Maratine parser can attach its AST
+// consumer before handing off to the Clang code-generation backend.
+class MaratineCodeGenAction : public ASTFrontendAction {
 public:
-  explicit MaratineASTConsumer(CompilerInstance &CI)
-    : Consumer(llvm::make_unique<EmitLLVMOnlyAction>(CI.getDiagnostics())) {}
+  MaratineCodeGenAction() = default;
+  ~MaratineCodeGenAction() override = default;
 
-  bool HandleTopLevelDecl(DeclGroupRef DG) override {
-    return Consumer->HandleTopLevelDecl(DG);
-  }
+  std::unique_ptr<ASTConsumer>
+  CreateASTConsumer(CompilerInstance &CI, StringRef InFile) override;
 
-  void HandleTranslationUnit(ASTContext &Ctx) override {
-    Consumer->HandleTranslationUnit(Ctx);
-  }
-
-private:
-  std::unique_ptr<FrontendAction> Consumer;
+  bool BeginSourceFileAction(CompilerInstance &CI) override;
+  void EndSourceFileAction() override;
 };
 
 } // namespace maratine
 } // namespace clang
 
-#endif // LLVM_FRONTEND_MARATINE_MARATINEASTCONSUMER_H
+#endif // LLVM_FRONTEND_MARATINE_MARATINECODEGENACTION_H

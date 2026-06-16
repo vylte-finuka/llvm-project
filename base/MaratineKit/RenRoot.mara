@@ -1,75 +1,53 @@
-//___
-//___ RenRoot.mara – Render Root Manager (SLUL)
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Gère la racine de rendu pour les pilotes SLUL.
-//___     Fournit la configuration de la colorimétrie (RGB, scRGB, DCI‑P3, …)
-//___     et l’activation/désactivation du mode HDR en s’appuyant sur
-//___     l’API graphique MaraGrphclCpeAPI.
-//___
+//===================================================================
+//  RenRoot.mara – Render Root Manager (SLUL)
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gère la racine de rendu pour les pilotes SLUL.
+//      Configure la colorimétrie et l'état HDR via DrvAPIInterCon.
+//===================================================================
 
 #base <MaratineKit>;
-#include <std***ComTpe***MarepFrmt***MaraGrphclCpeAPI.mara>   // API graphique de bas niveau
+#base <std***ComTpe***MarepFrmt***MaraGrphclCpeAPI>;
 
-// -----------------------------------------------------------------
-// État interne du render root
-// -----------------------------------------------------------------
-var _colorSpace String = "sRGB";   // espace couleur par défaut
-var _hdrEnabled bool = false;      // HDR désactivé par défaut
+var _colorSpace: <string> = "sRGB";
+var _hdrEnabled: <bool>   = false;
 
-// -----------------------------------------------------------------
-// Initialise le render root avec les valeurs par défaut
-// -----------------------------------------------------------------
-rel cl InitializeRenderRoot: <> [
-    // Applique les valeurs par défaut via l’API sous‑jacente
-    let _ = MaraGrphclCpeAPI.SetColorSpace(_colorSpace);
-    let _ = MaraGrphclCpeAPI.SetHDR(_hdrEnabled);
-    log: "RenderRoot initialized – colorSpace: " + _colorSpace + ", HDR: " + (if _hdrEnabled then "ON" else "OFF");
+// InitializeRenderRoot – initialise avec les valeurs par défaut
+rel cl InitializeRenderRoot: [] [
+    let _: <i32> = <MaraGrphclCpeAPI***SetColorSpace***>(_colorSpace);
+    let _: <i32> = <MaraGrphclCpeAPI***SetHDR***>(_hdrEnabled);
+    log: "RenderRoot: initialisé";
     ret 0;
 ];
 
-// -----------------------------------------------------------------
-// Définit l’espace de couleur utilisé par le rendu
-// -----------------------------------------------------------------
-rel cl SetColorSpace: <space String> [
+// SetColorSpace – définit l'espace de couleur du rendu
+rel cl SetColorSpace: [space string] [
     _colorSpace = space;
-    let res i32 = MaraGrphclCpeAPI.SetColorSpace(space);
-    if (res == 0) then [
-        log: "Color space set to: " + space;
-    ] else [
-        log: "Failed to set color space: " + space;
+    let res: <i32> = <MaraGrphclCpeAPI***SetColorSpace***>(space);
+    if (res != 0) [
+        log: "RenderRoot: erreur SetColorSpace – " + res;
     ];
     ret res;
 ];
 
-// -----------------------------------------------------------------
-// Active ou désactive le mode HDR
-// -----------------------------------------------------------------
-rel cl EnableHDR: <enabled bool> [
+// EnableHDR – active ou désactive le HDR
+rel cl EnableHDR: [enabled bool] [
     _hdrEnabled = enabled;
-    let res i32 = MaraGrphclCpeAPI.SetHDR(enabled);
-    if (res == 0) then [
-        log: "HDR " + (if enabled then "enabled" else "disabled");
-    ] else [
-        log: "Failed to " + (if enabled then "enable" else "disable") + " HDR";
+    let res: <i32> = <MaraGrphclCpeAPI***SetHDR***>(enabled);
+    if (res != 0) [
+        log: "RenderRoot: erreur SetHDR – " + res;
     ];
     ret res;
 ];
 
-// -----------------------------------------------------------------
-// Retourne l’espace de couleur actuellement configuré
-// -----------------------------------------------------------------
-rel cl GetCurrentColorSpace: <> [
-    log: "Current color space: " + _colorSpace;
+// GetCurrentColorSpace – retourne l'espace de couleur actif
+rel cl GetCurrentColorSpace: [] [
     ret _colorSpace;
 ];
 
-// -----------------------------------------------------------------
-// Retourne l’état du HDR (true = activé)
-// -----------------------------------------------------------------
-rel cl IsHDREnabled: <> [
-    log: "HDR enabled: " + (if _hdrEnabled then "true" else "false");
+// IsHDREnabled – retourne l'état HDR courant
+rel cl IsHDREnabled: [] [
     ret _hdrEnabled;
 ];

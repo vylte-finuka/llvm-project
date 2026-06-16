@@ -1,8 +1,6 @@
-//===--- MaratineSema.cpp - Semantic analysis for Maratine language --===//
+//===--- MaratineSema.cpp - Semantic analysis for Mara/Maratine language -===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+// Vyft Ltd — Proprietary — 2026
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,7 +10,6 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/Decl.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/FileSystem.h"
@@ -21,99 +18,131 @@ using namespace clang;
 using namespace clang::maratine;
 
 bool MaratineSema::ActOnImportDecl(MaratineImportDecl *D) {
-  // Resolve the module path: replace *** with the platform's path separator
-  SmallString<128> FSPath;
-  llvm::sys::path::native(D.getModulePath(), FSPath);
-  // Look for a directory entry under the current include path
+  // Replace *** path separator with directory separator and search for the module.
+  StringRef ModPath = D->getModulePath();
+  SmallString<256> FSPath;
+  for (char C : ModPath) {
+    if (C == '*')
+      FSPath.push_back(llvm::sys::path::get_separator().front());
+    else
+      FSPath.push_back(C);
+  }
+
   bool Found = false;
-  for (auto &I : getHeaderSearchInfo()) {
-    SmallString<128> Candidate(I);
-    llvm::sys::path::append(Candidate, FSPath);
+  auto &HS = getPreprocessor().getHeaderSearchInfo();
+  for (unsigned I = 0, N = HS.search_dir_size(); I < N; ++I) {
+    SmallString<256> Candidate(HS.search_dir_begin()[I].getName());
+    llvm::sys::path::append(Candidate, FSPath.str());
     if (llvm::sys::fs::is_directory(Candidate)) {
       Found = true;
-      // Add this directory to the header search path so that #include inside
-      // the module works.
-      getHeaderSearchInfo().addPath(Candidate, clang::frontend::Angled,
-                                    false, false);
       break;
     }
   }
+
   if (!Found) {
-    Diags.Report(D->getHashLoc(), diag::err_fe_expected_identifier)
-      << "module not found: " << D.getModulePath();
+    Diags.Report(D->getHashLoc(), diag::err_fe_invalid_code_complete_file)
+        << D->getModulePath();
     return true;
   }
 
-  // Record dependencies (could be used for build‑system later)
-  for (auto &Dep : D.getDependencies()) {
-    // For now just verify that a header <Dep.h> exists somewhere.
-    SmallString<128> DepPath;
-    llvm::sys::path::native(Dep, DepPath);
-    llvm::sys::path::append(DepPath, ".h");
-    bool DepOk = false;
-    for (auto &I : getHeaderSearchInfo()) {
-      SmallString<128> Cand(I);
-      llvm::sys::path::append(Cand, DepPath);
-      if (llvm::sys::fs::exists(Cand)) {
-        DepOk = true;
-        break;
-      }
-    }
-    if (!DepOk) {
-      Diags.Report(D->getHashLoc(), diag::err_fe_expected_identifier)
-        << "dependency not found: " << Dep;
-      return true;
-    }
-  }
   return false;
 }
 
 bool MaratineSema::ActOnLetDecl(MaratineLetDecl *D) {
-  // Ensure the initializer (if any) matches the declared type.
+  if (!D->getVarDecl()) return true;
+
   if (D->getInit()) {
-    ExprResult InitRes = UsualUnaryConversions(D->getInit());
+    ExprResult InitRes = DefaultLvalueConversion(D->getInit());
     if (InitRes.isInvalid()) return true;
-    Expr *Init = InitRes.get();
-    // Perform implicit conversion check
-    ExprResult Conv = ImpCastExprToType(Init, D->getVarDecl()->getType(),
+
+    ExprResult Conv = ImpCastExprToType(InitRes.get(),
+                                        D->getVarDecl()->getType(),
                                         CK_BitCast);
     if (Conv.isInvalid()) {
-      Diags.Report(D->getLetLoc(), diag::err_type_mismatch_in_init)
-        << D->getVarDecl()->getType() << Init->getType();
+      Diags.Report(D->getKwLoc(), diag::err_typecheck_convert_incompatible)
+          << D->getVarDecl()->getType()
+          << D->getInit()->getType()
+          << 1 << 0 << 0;
       return true;
     }
-    D->setInit(Conv.get());
   }
-  // Finally, let the base Sema handle the VarDecl creation.
-  return ActOnVarDecl(D->getVarDecl());
+
+  PushOnScopeChains(D->getVarDecl(), getCurScope(), /*AddToContext=*/true);
+  return false;
 }
 
 bool MaratineSema::ActOnFunctionDecl(MaratineFunctionDecl *D) {
-  // Push a new function scope
-  PushDeclContext(D->getFunction());
-  bool Err = ActOnFunctionBody(D->getFunction(), D->getBody());
+  if (!D->getFunction()) return true;
+
+  PushDeclContext(getCurScope(), D->getFunction());
+  bool Err = false;
+
+  if (D->getBody()) {
+    // Walk statements in the body — delegate each to the appropriate Act* method.
+    if (auto *CS = dyn_cast<CompoundStmt>(D->getBody())) {
+      for (auto *S : CS->body()) {
+        if (auto *IS = dyn_cast<MaratineIfStmt>(S))
+          Err |= ActOnIfStmt(IS);
+        else if (auto *LS = dyn_cast<MaratineLoopStmt>(S))
+          Err |= ActOnLoopStmt(LS);
+        else if (auto *ES = dyn_cast<MaratineExprStmt>(S))
+          Err |= ActOnExprStmt(ES);
+      }
+    }
+  }
+
   PopDeclContext();
   return Err;
 }
 
+bool MaratineSema::ActOnIfStmt(MaratineIfStmt *S) {
+  if (!S->getCond()) return true;
+
+  ExprResult Cond = CheckBooleanCondition(S->getIfLoc(), S->getCond());
+  if (Cond.isInvalid()) {
+    Diags.Report(S->getIfLoc(), diag::err_typecheck_bool_condition)
+        << S->getCond()->getType();
+    return true;
+  }
+
+  return false;
+}
+
+bool MaratineSema::ActOnLoopStmt(MaratineLoopStmt *S) {
+  if (!S->getCond()) return false; // infinite loop: loop [ … ] is valid
+
+  ExprResult Cond = CheckBooleanCondition(S->getLoopLoc(), S->getCond());
+  if (Cond.isInvalid()) {
+    Diags.Report(S->getLoopLoc(), diag::err_typecheck_bool_condition)
+        << S->getCond()->getType();
+    return true;
+  }
+
+  return false;
+}
+
 bool MaratineSema::ActOnExprStmt(MaratineExprStmt *S) {
   if (S->isRet()) {
-    // `ret:` must appear inside a function and the expression must be
-    // convertible to the function's return type.
-    if (!getCurFunctionDecl()) {
-      Diags.Report(S->getColonLoc(), diag::err_ret_outside_function);
+    // ret expr;  — no colon in Mara syntax
+    FunctionDecl *FnDecl = getCurFunctionDecl();
+    if (!FnDecl) {
+      Diags.Report(S->getKwLoc(), diag::err_return_in_constructor_handler);
       return true;
     }
-    QualType RetTy = getCurFunctionDecl()->getReturnType();
-    ExprResult Conv = ImpCastExprToType(S->getSubExpr(), RetTy, CK_BitCast);
-    if (Conv.isInvalid()) {
-      Diags.Report(S->getColonLoc(), diag::err_ret_type_mismatch)
-        << RetTy << S->getSubExpr()->getType();
-      return true;
+
+    if (S->getSubExpr()) {
+      ExprResult Conv = ImpCastExprToType(S->getSubExpr(),
+                                          FnDecl->getReturnType(),
+                                          CK_BitCast);
+      if (Conv.isInvalid()) {
+        Diags.Report(S->getKwLoc(), diag::err_typecheck_convert_incompatible)
+            << FnDecl->getReturnType()
+            << S->getSubExpr()->getType()
+            << 1 << 0 << 0;
+        return true;
+      }
     }
-    // Replace the expression with the converted one (so codegen sees the correct type)
-    const_cast<MaratineExprStmt*>(S)->setSubExpr(Conv.get());
   }
-  // For `log:` we just allow any expression (side‑effects are fine).
+  // log: expr;  — any expression is valid
   return false;
 }

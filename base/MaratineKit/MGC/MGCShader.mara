@@ -1,0 +1,158 @@
+//===================================================================
+//  MGCShader.mara – Maratine Graphical Compute — Shader Manager
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Compilation, liaison et hot-reload de shaders GLSL/SPIR-V.
+//      Bibliothèque de shaders PBR intégrés : Lit, Unlit, Sky,
+//      Shadow, PostProcess, Compute. Cache SPIR-V persistant.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***fs***[ MaraFS ]>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+
+let SHADER_VERT:    <i32> = 0;
+let SHADER_FRAG:    <i32> = 1;
+let SHADER_COMPUTE: <i32> = 2;
+let SHADER_GEOM:    <i32> = 3;
+
+let SHADER_LIT:          <i32> = 0;
+let SHADER_UNLIT:        <i32> = 1;
+let SHADER_SKY:          <i32> = 2;
+let SHADER_SHADOW:       <i32> = 3;
+let SHADER_POST_TONEMAP: <i32> = 4;
+let SHADER_POST_BLOOM:   <i32> = 5;
+let SHADER_POST_AO:      <i32> = 6;
+let SHADER_PARTICLE:     <i32> = 7;
+let SHADER_TERRAIN:      <i32> = 8;
+
+let MGC_MAX_SHADERS:   <i32> = 256;
+let SPIRV_CACHE_PATH:  <string> = "C:\MGC\ShaderCache\";
+
+let SHADER_OK:          <i32> = 0;
+let SHADER_ERR_COMPILE: <i32> = -1;
+let SHADER_ERR_LINK:    <i32> = -2;
+let SHADER_ERR_NOT_FOUND: <i32> = -3;
+let SHADER_ERR_INVALID: <i32> = -4;
+
+var _shaderHandles: <array> = [nullptr; MGC_MAX_SHADERS];
+var _shaderNames:   <array> = [null;    MGC_MAX_SHADERS];
+var _shaderTypes:   <array> = [0;       MGC_MAX_SHADERS];
+var _shaderCount:   <i32>   = 0;
+
+// Cherche un shader par nom (privé)
+rel cl _findShader: [name string] [
+    var i: <i32> = 0;
+    loop i < _shaderCount [
+        if (_shaderNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret -1;
+];
+
+// Charge depuis le cache SPIR-V (privé)
+rel cl _loadFromCache: [name string] [
+    let cachePath: <string> = SPIRV_CACHE_PATH + name + ".spv";
+    if (!<MaraFS***Exists***>(cachePath)) [ ret nullptr; ];
+    ret <MaraFS***Read***>(cachePath);
+];
+
+// Compile un shader GLSL → SPIR-V et le met en cache (privé)
+rel cl _compile: [name string, src string, shaderType i32] [
+    let spirv: <ptr> = <DrvAPIInterCon***GpuShaderCompile***>(src, shaderType);
+    if (spirv == nullptr) [ ret nullptr; ];
+
+    let cachePath: <string> = SPIRV_CACHE_PATH + name + ".spv";
+    let spirvSize: <i32> = <DrvAPIInterCon***GpuShaderSpirvSize***>(spirv);
+    let _: <i32> = <MaraFS***Write***>(cachePath, spirv, spirvSize);
+
+    ret spirv;
+];
+
+// LoadFromSource – compile et enregistre un shader depuis du GLSL
+rel op LoadFromSource: [name string, src string, shaderType i32] [
+    if (name == null || src == null) [ ret SHADER_ERR_INVALID; ];
+    if (_shaderCount >= MGC_MAX_SHADERS) [ ret SHADER_ERR_INVALID; ];
+
+    var spirv: <ptr> = _loadFromCache(name);
+    if (spirv == nullptr) [
+        spirv = _compile(name, src, shaderType);
+        if (spirv == nullptr) [ ret SHADER_ERR_COMPILE; ];
+    ];
+
+    let handle: <ptr> = <DrvAPIInterCon***GpuShaderCreate***>(_shaderType, spirv);
+    if (handle == nullptr) [ ret SHADER_ERR_LINK; ];
+
+    _shaderNames[_shaderCount]   = name;
+    _shaderHandles[_shaderCount] = handle;
+    _shaderTypes[_shaderCount]   = shaderType;
+    _shaderCount = _shaderCount + 1;
+
+    let _: <i32> = <MGCCore***AllocResource***>(name, handle, shaderType);
+    ret SHADER_OK;
+];
+
+// LoadBuiltin – charge un shader PBR intégré par constante SHADER_*
+rel op LoadBuiltin: [builtinId i32] [
+    let src: <string> = <DrvAPIInterCon***GpuGetBuiltinShaderSrc***>(builtinId);
+    if (src == null) [ ret SHADER_ERR_NOT_FOUND; ];
+
+    let name: <string> = "builtin_" + builtinId;
+    let sType: <i32>   = (builtinId == SHADER_PARTICLE) ? SHADER_COMPUTE : SHADER_FRAG;
+    ret LoadFromSource(name, src, sType);
+];
+
+// LoadAllBuiltins – charge tous les shaders PBR standard
+rel op LoadAllBuiltins: [] [
+    var i: <i32> = 0;
+    loop i <= SHADER_TERRAIN [
+        let result: <i32> = LoadBuiltin(i);
+        if (result != SHADER_OK) [
+            log: "MGCShader: builtin " + i + " KO – " + result;
+        ];
+        i = i + 1;
+    ];
+    ret SHADER_OK;
+];
+
+// Get – retourne le handle GPU d'un shader par nom
+rel op Get: [name string] [
+    let idx: <i32> = _findShader(name);
+    if (idx == -1) [ ret nullptr; ];
+    ret _shaderHandles[idx];
+];
+
+// HotReload – recompile un shader depuis son source sans stopper le rendu
+rel op HotReload: [name string, newSrc string] [
+    let idx: <i32> = _findShader(name);
+    if (idx == -1) [ ret SHADER_ERR_NOT_FOUND; ];
+
+    let spirv: <ptr> = _compile(name, newSrc, _shaderTypes[idx]);
+    if (spirv == nullptr) [ ret SHADER_ERR_COMPILE; ];
+
+    let newHandle: <ptr> = <DrvAPIInterCon***GpuShaderCreate***>(_shaderTypes[idx], spirv);
+    if (newHandle == nullptr) [ ret SHADER_ERR_LINK; ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuShaderDestroy***>(_shaderHandles[idx]);
+    _shaderHandles[idx] = newHandle;
+    log: "MGCShader: hot-reload OK – " + name;
+    ret SHADER_OK;
+];
+
+// Destroy – supprime un shader par nom
+rel op Destroy: [name string] [
+    let idx: <i32> = _findShader(name);
+    if (idx == -1) [ ret SHADER_ERR_NOT_FOUND; ];
+    let _: <i32> = <DrvAPIInterCon***GpuShaderDestroy***>(_shaderHandles[idx]);
+    _shaderHandles[idx] = nullptr;
+    _shaderNames[idx]   = null;
+    ret SHADER_OK;
+];
+
+// Count – nombre de shaders chargés
+rel op Count: [] [
+    ret _shaderCount;
+];

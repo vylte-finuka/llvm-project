@@ -14,8 +14,8 @@ package:
 # Métadonnées spécifiques à Slura / Maratine
 # --------------------------------------------------------------
 metadata:
-  # Type de cible (AMD64, ARM64, …)
-  target: amd64
+  # Type de cible
+  target: arm64
   # Format du bundle
   bundle: marep
   # Attributs propres au runtime Slura

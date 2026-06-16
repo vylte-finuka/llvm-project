@@ -1,0 +1,133 @@
+//===================================================================
+//  MaraIO.mara – Input / Output Manager
+//  Module : base/std/io
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestionnaire d'entrées/sorties pour Slura.
+//      Tactile, stylet, couronne physique, capteurs, caméra,
+//      torche et retours haptiques.
+//===================================================================
+
+#base <MaratineKit>;
+
+let EV_NONE:        <i32> = 0;
+let EV_TOUCH_DOWN:  <i32> = 1;
+let EV_TOUCH_UP:    <i32> = 2;
+let EV_TOUCH_MOVE:  <i32> = 3;
+let EV_STYLUS_DOWN: <i32> = 4;
+let EV_STYLUS_UP:   <i32> = 5;
+let EV_STYLUS_MOVE: <i32> = 6;
+let EV_CROWN_UP:    <i32> = 7;
+let EV_CROWN_DOWN:  <i32> = 8;
+let EV_CROWN_PRESS: <i32> = 9;
+
+let SCREEN_W: <i32> = 454;
+let SCREEN_H: <i32> = 454;
+
+let IO_OK:         <i32> = 0;
+let IO_ERR_RANGE:  <i32> = -1;
+let IO_ERR_DEVICE: <i32> = -2;
+let IO_ERR_BUSY:   <i32> = -3;
+
+var _pedometerSteps: <i32>  = 0;
+var _altitudeMeters: <i32>  = 0;
+var _torchEnabled:   <i32>  = 0;
+var _torchLevel:     <i32>  = 0;
+var _cameraActive:   <bool> = false;
+var _lastTouchX:     <i32>  = 0;
+var _lastTouchY:     <i32>  = 0;
+
+// GetTouch – dernier événement tactile (ptr ou nullptr)
+rel op GetTouch: [] [
+    ret <DrvAPIInterCon***TouchGetEvent***()>;
+];
+
+// GetTouchX – dernière coordonnée X tactile
+rel op GetTouchX: [] [
+    let ev: <ptr> = <DrvAPIInterCon***TouchGetEvent***()>;
+    if (ev == nullptr) [ ret -1; ];
+    _lastTouchX = <DrvAPIInterCon***TouchGetX***>(ev);
+    ret _lastTouchX;
+];
+
+// GetTouchY – dernière coordonnée Y tactile
+rel op GetTouchY: [] [
+    let ev: <ptr> = <DrvAPIInterCon***TouchGetEvent***()>;
+    if (ev == nullptr) [ ret -1; ];
+    _lastTouchY = <DrvAPIInterCon***TouchGetY***>(ev);
+    ret _lastTouchY;
+];
+
+// GetStylus – état complet du stylet
+rel op GetStylus: [] [
+    ret <DrvAPIInterCon***StylusGetEvent***()>;
+];
+
+// GetSteps – nombre de pas depuis le dernier reset
+rel op GetSteps: [] [
+    _pedometerSteps = <DrvAPIInterCon***PedometerGetSteps***()>;
+    ret _pedometerSteps;
+];
+
+// ResetSteps – remet le compteur à zéro
+rel op ResetSteps: [] [
+    let _: <i32> = <DrvAPIInterCon***PedometerReset***()>;
+    _pedometerSteps = 0;
+    ret IO_OK;
+];
+
+// GetAltitude – altitude en mètres
+rel op GetAltitude: [] [
+    _altitudeMeters = <DrvAPIInterCon***AltimeterGetAltitude***()>;
+    ret _altitudeMeters;
+];
+
+// SetTorch – niveau de la torche 0–100%
+rel op SetTorch: [level i32] [
+    if (level < 0 || level > 100) [ ret IO_ERR_RANGE; ];
+    let result: <i32> = <DrvAPIInterCon***TorchSetLevel***>(level);
+    if (result != 0) [ ret IO_ERR_DEVICE; ];
+    _torchEnabled = (level > 0);
+    _torchLevel   = level;
+    ret IO_OK;
+];
+
+// GetTorchLevel – niveau actuel de la torche
+rel op GetTorchLevel: [] [
+    ret _torchLevel;
+];
+
+// CapturePhoto – déclenche une capture caméra, retourne le buffer
+rel op CapturePhoto: [] [
+    if (_cameraActive) [ ret nullptr; ];
+    _cameraActive = true;
+    let buf: <ptr> = <DrvAPIInterCon***CameraCapture***()>;
+    _cameraActive = false;
+    ret buf;
+];
+
+// GetCrown – état de la couronne physique
+rel op GetCrown: [] [
+    ret <DrvAPIInterCon***CrownGetState***()>;
+];
+
+// Vibrate – retour haptique (durée ms 1–5000, intensité 0–100)
+rel op Vibrate: [durationMs i32, intensity i32] [
+    if (durationMs <= 0 || durationMs > 5000) [ ret IO_ERR_RANGE; ];
+    if (intensity < 0 || intensity > 100) [ ret IO_ERR_RANGE; ];
+    let _: <i32> = <DrvAPIInterCon***HapticVibrate***>(durationMs, intensity);
+    ret IO_OK;
+];
+
+// VibrateTap – tap haptique court standard
+rel op VibrateTap: [] [
+    ret Vibrate(30, 60);
+];
+
+// VibrateError – retour haptique d'erreur (double pulse)
+rel op VibrateError: [] [
+    let _: <i32> = Vibrate(60, 90);
+    let _: <i32> = Vibrate(60, 90);
+    ret IO_OK;
+];

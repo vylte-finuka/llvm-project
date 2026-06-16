@@ -1,0 +1,150 @@
+//===================================================================
+//  StylusKit.mara – Stylus Input Manager
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestion complète du stylet EMR télescopique.
+//      Fournit position, pression, inclinaison, détection
+//      d'insertion/éjection et modes d'entrée (dessin, écriture,
+//      navigation). Compatible avec la dalle AMOLED 454×454 px.
+//===================================================================
+
+#base <MaratineKit>;
+
+let SCREEN_W: <i32> = 454;
+let SCREEN_H: <i32> = 454;
+
+let PRESSURE_MAX:   <i32> = 4096;
+let PRESSURE_SCALE: <i32> = 100;
+
+let MODE_NONE:       <i32> = 0;
+let MODE_DRAWING:    <i32> = 1;
+let MODE_WRITING:    <i32> = 2;
+let MODE_NAVIGATION: <i32> = 3;
+let MODE_ERASER:     <i32> = 4;
+
+let TIP_PEN:    <i32> = 0;
+let TIP_ERASER: <i32> = 1;
+
+let STY_OK:          <i32> = 0;
+let STY_ERR_RANGE:   <i32> = -1;
+let STY_ERR_MODE:    <i32> = -2;
+let STY_ERR_NOTSTYLS: <i32> = -3;
+
+var _stylusInserted:  <bool> = false;
+var _stylusActive:    <bool> = false;
+var _posX:            <i32>  = 0;
+var _posY:            <i32>  = 0;
+var _pressureRaw:     <i32>  = 0;
+var _tiltX:           <i32>  = 0;
+var _tiltY:           <i32>  = 0;
+var _activeTip:       <i32>  = TIP_PEN;
+var _currentMode:     <i32>  = MODE_NONE;
+var _buttonPressed:   <bool> = false;
+
+// Poll – lit l'état courant depuis le contrôleur EMR (privé)
+rel cl _Poll: [] [
+    let ev: <ptr> = <DrvAPIInterCon***StylusGetEvent***()>;
+    if (ev == nullptr) [
+        _stylusActive = false;
+        ret STY_OK;
+    ];
+    _stylusActive  = true;
+    _posX          = <DrvAPIInterCon***StylusGetX***>(ev);
+    _posY          = <DrvAPIInterCon***StylusGetY***>(ev);
+    _pressureRaw   = <DrvAPIInterCon***StylusGetPressure***>(ev);
+    _tiltX         = <DrvAPIInterCon***StylusGetTiltX***>(ev);
+    _tiltY         = <DrvAPIInterCon***StylusGetTiltY***>(ev);
+    _activeTip     = <DrvAPIInterCon***StylusGetTip***>(ev);
+    _buttonPressed = <DrvAPIInterCon***StylusGetButton***>(ev);
+    ret STY_OK;
+];
+
+// IsInserted – retourne vrai si le stylet est dans son logement
+rel op IsInserted: [] [
+    _stylusInserted = <DrvAPIInterCon***HallSensorRead***()>;
+    ret _stylusInserted;
+];
+
+// IsActive – retourne vrai si le stylet est en contact avec la dalle
+rel op IsActive: [] [
+    let _: <i32> = _Poll();
+    ret _stylusActive;
+];
+
+// GetX – position X sur 0–453
+rel op GetX: [] [
+    let _: <i32> = _Poll();
+    ret _posX;
+];
+
+// GetY – position Y sur 0–453
+rel op GetY: [] [
+    let _: <i32> = _Poll();
+    ret _posY;
+];
+
+// GetPressure – pression normalisée 0–100
+rel op GetPressure: [] [
+    let _: <i32> = _Poll();
+    let p: <i32> = (_pressureRaw * PRESSURE_SCALE) / PRESSURE_MAX;
+    ret p;
+];
+
+// GetPressureRaw – pression brute 0–4096
+rel op GetPressureRaw: [] [
+    let _: <i32> = _Poll();
+    ret _pressureRaw;
+];
+
+// GetTilt – inclinaison X et Y en degrés (–90 à +90)
+rel op GetTiltX: [] [
+    let _: <i32> = _Poll();
+    ret _tiltX;
+];
+
+rel op GetTiltY: [] [
+    let _: <i32> = _Poll();
+    ret _tiltY;
+];
+
+// IsEraser – retourne vrai si l'extrémité gomme est active
+rel op IsEraser: [] [
+    let _: <i32> = _Poll();
+    ret (_activeTip == TIP_ERASER);
+];
+
+// IsButtonPressed – bouton latéral du stylet pressé
+rel op IsButtonPressed: [] [
+    let _: <i32> = _Poll();
+    ret _buttonPressed;
+];
+
+// SetMode – définit le mode d'interprétation du stylet
+rel op SetMode: [mode i32] [
+    if (mode < MODE_NONE || mode > MODE_ERASER) [ ret STY_ERR_MODE; ];
+    _currentMode = mode;
+    let _: <i32> = <DrvAPIInterCon***StylusSetMode***>(mode);
+    ret STY_OK;
+];
+
+// GetMode – retourne le mode actif
+rel op GetMode: [] [
+    ret _currentMode;
+];
+
+// SetDrawingCursor – configure le curseur visuel pour le mode dessin
+rel op SetDrawingCursor: [sizePixels i32, color string, opacity i32] [
+    if (sizePixels <= 0 || sizePixels > 64) [ ret STY_ERR_RANGE; ];
+    if (opacity < 0 || opacity > 100) [ ret STY_ERR_RANGE; ];
+    let _: <i32> = <DrvAPIInterCon***StylusCursorSet***>(sizePixels, color, opacity);
+    ret STY_OK;
+];
+
+// Vibrate – retour haptique court lors du contact stylet
+rel op Vibrate: [intensityPercent i32] [
+    if (intensityPercent < 0 || intensityPercent > 100) [ ret STY_ERR_RANGE; ];
+    let _: <i32> = <DrvAPIInterCon***HapticVibrate***>(30, intensityPercent);
+    ret STY_OK;
+];

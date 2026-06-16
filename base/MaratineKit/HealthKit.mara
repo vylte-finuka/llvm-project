@@ -1,0 +1,141 @@
+//===================================================================
+//  HealthKit.mara – Health Sensor Manager
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      API santé pour Slura : podomètre, altimètre/baromètre,
+//      activité physique, objectifs journaliers.
+//      Utilise les APIs génériques PedometerGetSteps et AltimeterGetAltitude.
+//===================================================================
+
+#base <MaratineKit>;
+
+let ACTIVITY_UNKNOWN:    <i32> = 0;
+let ACTIVITY_STATIONARY: <i32> = 1;
+let ACTIVITY_WALKING:    <i32> = 2;
+let ACTIVITY_RUNNING:    <i32> = 3;
+let ACTIVITY_CYCLING:    <i32> = 4;
+
+let GOAL_STEPS_DEFAULT:  <i32> = 10000;
+let GOAL_ALT_DEFAULT:    <i32> = 500;
+
+let HEALTH_OK:           <i32> = 0;
+let HEALTH_ERR_SENSOR:   <i32> = -1;
+let HEALTH_ERR_RANGE:    <i32> = -2;
+
+var _steps:           <i32> = 0;
+var _stepsGoal:       <i32> = GOAL_STEPS_DEFAULT;
+var _stepsSession:    <i32> = 0;
+var _altitudeM:       <i32> = 0;
+var _altGoalM:        <i32> = GOAL_ALT_DEFAULT;
+var _activityState:   <i32> = ACTIVITY_UNKNOWN;
+var _caloriesKcal:    <i32> = 0;
+var _distanceM:       <i32> = 0;
+var _sessionActive:   <bool> = false;
+
+// Refresh – lit les capteurs et met à jour l'état interne (privé)
+rel cl _Refresh: [] [
+    let rawSteps: <i32> = <DrvAPIInterCon***PedometerGetSteps***()>;
+    if (rawSteps >= 0) [ _steps = rawSteps; ];
+
+    let rawAlt: <i32> = <DrvAPIInterCon***AltimeterGetAltitude***()>;
+    if (rawAlt >= -500) [ _altitudeM = rawAlt; ];
+
+    _activityState = <DrvAPIInterCon***PedometerGetActivity***()>;
+
+    // Distance estimée : 0,75 m par pas en moyenne
+    _distanceM = (_steps * 75) / 100;
+
+    // Calories estimées : 0,04 kcal par pas
+    _caloriesKcal = (_steps * 4) / 100;
+
+    ret HEALTH_OK;
+];
+
+// GetSteps – nombre de pas depuis le dernier reset
+rel op GetSteps: [] [
+    let _: <i32> = _Refresh();
+    ret _steps;
+];
+
+// GetSessionSteps – pas de la session en cours
+rel op GetSessionSteps: [] [
+    if (!_sessionActive) [ ret 0; ];
+    ret _stepsSession;
+];
+
+// ResetSteps – remet le compteur à zéro
+rel op ResetSteps: [] [
+    let res: <i32> = <DrvAPIInterCon***PedometerReset***()>;
+    if (res != 0) [ ret HEALTH_ERR_SENSOR; ];
+    _steps = 0;
+    _distanceM = 0;
+    _caloriesKcal = 0;
+    ret HEALTH_OK;
+];
+
+// SetStepsGoal – objectif journalier (1–99 999)
+rel op SetStepsGoal: [goal i32] [
+    if (goal <= 0 || goal > 99999) [ ret HEALTH_ERR_RANGE; ];
+    _stepsGoal = goal;
+    ret HEALTH_OK;
+];
+
+// GetStepsGoalProgress – progression vers l'objectif (0–100%)
+rel op GetStepsGoalProgress: [] [
+    let _: <i32> = _Refresh();
+    if (_stepsGoal == 0) [ ret 0; ];
+    let p: <i32> = (_steps * 100) / _stepsGoal;
+    if (p > 100) [ ret 100; ];
+    ret p;
+];
+
+// GetAltitude – altitude actuelle en mètres (peut être négatif)
+rel op GetAltitude: [] [
+    let _: <i32> = _Refresh();
+    ret _altitudeM;
+];
+
+// GetActivity – état d'activité physique détecté
+rel op GetActivity: [] [
+    let _: <i32> = _Refresh();
+    ret _activityState;
+];
+
+// GetDistance – distance estimée en mètres depuis le dernier reset
+rel op GetDistance: [] [
+    let _: <i32> = _Refresh();
+    ret _distanceM;
+];
+
+// GetCalories – estimation calorique depuis le dernier reset
+rel op GetCalories: [] [
+    let _: <i32> = _Refresh();
+    ret _caloriesKcal;
+];
+
+// StartSession – démarre un enregistrement de session
+rel op StartSession: [] [
+    if (_sessionActive) [ ret HEALTH_OK; ];
+    let _: <i32> = _Refresh();
+    _stepsSession = 0;
+    _sessionActive = true;
+    log: "HealthKit: session démarrée";
+    ret HEALTH_OK;
+];
+
+// StopSession – arrête l'enregistrement de session
+rel op StopSession: [] [
+    if (!_sessionActive) [ ret HEALTH_OK; ];
+    let _: <i32> = _Refresh();
+    _sessionActive = false;
+    log: "HealthKit: session arrêtée – " + _stepsSession + " pas";
+    ret HEALTH_OK;
+];
+
+// IsGoalReached – retourne vrai si l'objectif est atteint
+rel op IsGoalReached: [] [
+    let _: <i32> = _Refresh();
+    ret (_steps >= _stepsGoal);
+];

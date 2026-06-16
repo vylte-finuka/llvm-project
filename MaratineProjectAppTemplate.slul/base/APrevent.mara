@@ -1,39 +1,64 @@
 //===================================================================
-//  LAPrevent.mart – Gestion de l’événement d’affichage (Layout Access Process)
-//  Projet : MaratineProjectAppTemplate.marep
+//  APrevent.mara – Driver Lifecycle Layer (SLUL)
+//  Projet : MaratineProjectAppTemplate.slul
 //  Auteur : Vyft Ltd
 //  Licence : Proprietary – 2026
 //  Description :
-//      Ce module définit l’événement d’affichage qui charge le layout UI
-//      (ResLayout.xml), crée le texte « Hello World ! », le loggue et
-//      expose le layout via le composant <ResLayout>.  Il utilise les
-//      APIs MaratineKit, le format du bundle (MarepFrmt) et le layout
-//      slasset.
+//      Couche de cycle de vie du pilote SLUL.
+//      Gère la mise sous tension, la suspension et l'arrêt du pilote.
 //===================================================================
 
-#base <std***ComTpe***SlulFrmt[ MathSafety, DrvManSpec ]>;
+#base <std***ComTpe***SlulFrmt***[ MathSafety, DrvManSpec ]>;
 #base <MaratineKit>;
-#base <OEntry***RenderRoot>;
+#base <MaratineKit***CycleActivity>;
+#base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
 
-// Fonction d'événement d'affichage – privée (cl)
-rel cl APrevent: <RenderRoot>, <MaratineKit***CycleActivity, DrvInstance, MaraGrphclCpeAPI> [
+// APrevent – cycle de vie public du pilote SLUL
+rel op APrevent: <[string CycleActivity]>t [
 
-    // Déclaration d'une fonction locale qui utilise le module MathSafety
-    let Hellofunction: <MathSafety, String> =
-        // Corps de la fonction – on crée le texte "Hello World !"
-        let msg String: print "Hello World !";
-        // Log via le runtime Maratine (log: …)
-        log: msg;
-        // Retour du texte (utile si on veut le réutiliser)
-        ret msg;
-    ;
+    var Architecture: <string> = "";
 
-    // Appel de la fonction au moment du chargement du module
-    Hellofunction();
+    // OnPowerOn – initialisation au démarrage du pilote
+    rel op OnPowerOn: [arch string] [
+        Architecture = arch;
+        log: "APrevent: démarrage pilote";
 
-    // Utilisation du layout déclaré dans ResLayout.xml
-    // Le composant <ResLayout> crée la hiérarchie UI de base.
-    let UIRoot = <ResLayout>;
-    // Log du layout chargé (pour debug)
-    log: "ResLayout chargé";
+        let drvResult: <i32> = self***onDriverInit();
+        if (drvResult != 0) [
+            log: "APrevent: erreur onDriverInit – " + drvResult;
+            ret drvResult;
+        ];
+
+        ret 0;
+    ];
+
+    // onDriverInit – initialisation privée du pilote
+    rel cl onDriverInit: [] [
+        let gpuResult: <i32> = <DrvAPIInterCon***GpuInit***()>;
+        if (gpuResult != 0) [
+            log: "APrevent: erreur GpuInit – " + gpuResult;
+            ret gpuResult;
+        ];
+
+        log: "APrevent: pilote initialisé";
+        ret 0;
+    ];
+
+    // OnPowerOff – arrêt propre du pilote
+    rel op OnPowerOff: [] [
+        let _: <i32> = <DrvAPIInterCon***GpuShutdown***()>;
+        ret 0;
+    ];
+
+    // OnSuspend – suspension du pilote
+    rel op OnSuspend: [] [
+        let _: <i32> = <DrvAPIInterCon***GpuSuspend***()>;
+        ret 0;
+    ];
+
+    // OnResume – reprise du pilote
+    rel op OnResume: [] [
+        let _: <i32> = <DrvAPIInterCon***GpuResume***()>;
+        ret 0;
+    ];
 ];

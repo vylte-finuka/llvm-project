@@ -1,0 +1,197 @@
+//===================================================================
+//  WatchFaceKit.mara – Watch Face Rendering Kit
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Primitives de rendu pour cadrans de montre sur dalle AMOLED
+//      ronde 454×454 px fond noir (#000000).
+//      Supporte cadrans analogique, numérique et hybride.
+//      Gère les complications (météo, santé, batterie, réseau).
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***ComTpe***MarepFrmt***MaraGrphclCpeAPI>;
+
+let WF_W: <i32> = 454;
+let WF_H: <i32> = 454;
+let WF_CX: <i32> = 227;
+let WF_CY: <i32> = 227;
+
+let STYLE_ANALOG:  <i32> = 0;
+let STYLE_DIGITAL: <i32> = 1;
+let STYLE_HYBRID:  <i32> = 2;
+
+let COMP_NONE:     <i32> = 0;
+let COMP_STEPS:    <i32> = 1;
+let COMP_BATTERY:  <i32> = 2;
+let COMP_WEATHER:  <i32> = 3;
+let COMP_DATE:     <i32> = 4;
+let COMP_ALTITUDE: <i32> = 5;
+let COMP_NETWORK:  <i32> = 6;
+let COMP_NOTIF:    <i32> = 7;
+
+let COMP_SLOTS:    <i32> = 4;
+
+let WF_OK:         <i32> = 0;
+let WF_ERR_RANGE:  <i32> = -1;
+let WF_ERR_STYLE:  <i32> = -2;
+let WF_ERR_CTX:    <i32> = -3;
+
+var _style:         <i32>    = STYLE_DIGITAL;
+var _bgColor:       <string> = "#000000";
+var _accentColor:   <string> = "#FFFFFF";
+var _secondColor:   <string> = "#FF3B30";
+var _hour:          <i32>    = 0;
+var _minute:        <i32>    = 0;
+var _second:        <i32>    = 0;
+var _compTypes:     <array>  = [0; COMP_SLOTS];
+var _compValues:    <array>  = [null; COMP_SLOTS];
+var _ambientMode:   <bool>   = false;
+var _ctx:           <string> = "";
+
+// Init – initialise le kit avec un contexte de rendu
+rel op Init: [ctx string] [
+    if (ctx == "" || ctx == null) [ ret WF_ERR_CTX; ];
+    _ctx = ctx;
+    let _: <i32> = <MaraGrphclCpeAPI***Init***()>;
+    ret WF_OK;
+];
+
+// SetStyle – définit le style du cadran
+rel op SetStyle: [style i32] [
+    if (style < STYLE_ANALOG || style > STYLE_HYBRID) [ ret WF_ERR_STYLE; ];
+    _style = style;
+    ret WF_OK;
+];
+
+// SetColors – couleurs du cadran (fond, accent, aiguille secondes)
+rel op SetColors: [bg string, accent string, second string] [
+    if (bg == "" || bg == null) [ ret WF_ERR_RANGE; ];
+    _bgColor     = bg;
+    _accentColor = accent;
+    _secondColor = second;
+    ret WF_OK;
+];
+
+// SetTime – heure à afficher
+rel op SetTime: [h i32, m i32, s i32] [
+    if (h < 0 || h > 23) [ ret WF_ERR_RANGE; ];
+    if (m < 0 || m > 59) [ ret WF_ERR_RANGE; ];
+    if (s < 0 || s > 59) [ ret WF_ERR_RANGE; ];
+    _hour   = h;
+    _minute = m;
+    _second = s;
+    ret WF_OK;
+];
+
+// SetComplication – configure un slot de complication (0–3)
+rel op SetComplication: [slot i32, compType i32, value string] [
+    if (slot < 0 || slot >= COMP_SLOTS) [ ret WF_ERR_RANGE; ];
+    if (compType < COMP_NONE || compType > COMP_NOTIF) [ ret WF_ERR_RANGE; ];
+    _compTypes[slot]  = compType;
+    _compValues[slot] = value;
+    ret WF_OK;
+];
+
+// SetAmbientMode – réduit le rendu pour économiser la batterie
+rel op SetAmbientMode: [enabled bool] [
+    _ambientMode = enabled;
+    let _: <i32> = <DrvAPIInterCon***GpuSetAmbientMode***>(enabled);
+    ret WF_OK;
+];
+
+// Render – déclenche le rendu complet du cadran
+rel op Render: [] [
+    if (_ctx == "" || _ctx == null) [ ret WF_ERR_CTX; ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuClearScreen***>(_bgColor);
+
+    if (_style == STYLE_ANALOG || _style == STYLE_HYBRID) [
+        let _: <i32> = _RenderAnalog();
+    ];
+
+    if (_style == STYLE_DIGITAL || _style == STYLE_HYBRID) [
+        let _: <i32> = _RenderDigital();
+    ];
+
+    let _: <i32> = _RenderComplications();
+
+    if (!_ambientMode) [
+        let _: <i32> = _RenderLuneeBranding();
+    ];
+
+    let gpuResult: <i32> = <DrvAPIInterCon***GpuFlushRenderContext***>(_ctx);
+    ret gpuResult;
+];
+
+// Rendu cadran analogique (privé)
+rel cl _RenderAnalog: [] [
+    let hourAngle: <i32>   = (_hour * 30) + (_minute / 2);
+    let minuteAngle: <i32> = _minute * 6;
+    let secondAngle: <i32> = _second * 6;
+
+    let _: <i32> = <DrvAPIInterCon***GpuDrawCircle***>(WF_CX, WF_CY, 210, _accentColor, 1);
+
+    var tick: <i32> = 0;
+    loop tick < 12 [
+        let angle: <i32> = tick * 30;
+        let _: <i32> = <DrvAPIInterCon***GpuDrawTick***>(WF_CX, WF_CY, angle, 195, 210, _accentColor);
+        tick = tick + 1;
+    ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuDrawHand***>(WF_CX, WF_CY, hourAngle,   120, 8, _accentColor);
+    let _: <i32> = <DrvAPIInterCon***GpuDrawHand***>(WF_CX, WF_CY, minuteAngle, 170, 5, _accentColor);
+
+    if (!_ambientMode) [
+        let _: <i32> = <DrvAPIInterCon***GpuDrawHand***>(WF_CX, WF_CY, secondAngle, 185, 2, _secondColor);
+    ];
+
+    ret WF_OK;
+];
+
+// Rendu cadran numérique (privé)
+rel cl _RenderDigital: [] [
+    var timeStr: <string> = "";
+    if (_hour < 10)   [ timeStr = "0" + _hour;   ] else [ timeStr = "" + _hour;   ];
+    timeStr = timeStr + ":";
+    if (_minute < 10) [ timeStr = timeStr + "0" + _minute; ] else [ timeStr = timeStr + _minute; ];
+
+    let yPos: <i32> = WF_CY;
+    if (_style == STYLE_HYBRID) [ yPos = WF_CY - 40; ];
+
+    let _: <i32> = <DrvAPIInterCon***GpuDrawText***>(timeStr, WF_CX, yPos, _accentColor, 64, "center");
+    ret WF_OK;
+];
+
+// Rendu des complications (privé)
+rel cl _RenderComplications: [] [
+    let positions_x: <array> = [WF_CX; WF_CX - 80; WF_CX + 80; WF_CX];
+    let positions_y: <array> = [WF_CY + 80; WF_CY; WF_CY; WF_CY - 80];
+
+    var i: <i32> = 0;
+    loop i < COMP_SLOTS [
+        if (_compTypes[i] != COMP_NONE) [
+            let val: <string> = _compValues[i];
+            if (val == null) [ val = "--"; ];
+            let _: <i32> = <DrvAPIInterCon***GpuDrawText***>(
+                val,
+                positions_x[i],
+                positions_y[i],
+                _accentColor,
+                18,
+                "center"
+            );
+        ];
+        i = i + 1;
+    ];
+    ret WF_OK;
+];
+
+// Signature Slura discrète en bas du cadran (privé)
+rel cl _RenderLuneeBranding: [] [
+    let _: <i32> = <DrvAPIInterCon***GpuDrawText***>(
+        "Slura", WF_CX, WF_CY + 110, "#333333", 11, "center"
+    );
+    ret WF_OK;
+];

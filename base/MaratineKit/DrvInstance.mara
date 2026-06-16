@@ -1,276 +1,159 @@
-//___
-//___ DrvInstance.mara – Generic Instance Manager (Lifecycle & Metadata)
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Gère le cycle de vie complet d’une instance logicielle (module,
-//___     service, composant MAREP, etc.) : chargement, initialisation,
-//___     démarrage, arrêt, destruction.
-//___     Fournit des métadonnées standard (nom, version, point d’entrée,
-//___     état, etc.) similaires à celles affichées par le Gestionnaire
-//___     de tâches ou le registre d’applications.
-//___     Utilise DrvManSpec pour le chargement/vérification des binaires,
-//___     DrvAPIInterCon pour les appels matériels génériques si nécessaire,
-//___     MathSafety pour les opérations d’indice sûres et PAccessAuth
-//___     pour le logging d’accès.
-//___
+//===================================================================
+//  DrvInstance.mara – Generic Instance Manager
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gère le cycle de vie des instances logicielles (modules,
+//      services, composants MAREP) : chargement, initialisation,
+//      démarrage, arrêt, destruction. Compteur de références inclus.
+//===================================================================
 
 #base <MaratineKit>;
 #base <std***ComTpe***SlulFrmt***DrvManSpec>;
 #base <std***ComTpe***SlulFrmt***DrvAPIInterCon>;
 #base <std***ComTpe***SlulFrmt***MathSafety>;
-#base <std***core***self***RegistrationRoot***PAccessAuth>;
-#include <cstddef>
-#include <dlfcn.h>          // dlopen, dlsym, dlerror
+#base <std***core***self***RegistrationRoot***[ PAccessAuth ]>;
 
-// -----------------------------------------------------------------
-// Configuration du gestionnaire d’instances
-// -----------------------------------------------------------------
-let MAX_INSTANCES i32 = 32;                     // nombre maximal d’instances simultanées
+let MAX_INSTANCES:  <i32> = 32;
+let STATE_UNLOADED: <i32> = 0;
+let STATE_LOADED:   <i32> = 1;
+let STATE_INIT:     <i32> = 2;
+let STATE_STARTED:  <i32> = 3;
+let STATE_STOPPED:  <i32> = 4;
+let STATE_ERROR:    <i32> = 5;
 
-// États possibles d’une instance (enum simple)
-let STATE_UNLOADED i32 = 0;
-let STATE_LOADED   i32 = 1;   // dlopen réussi, pas encore initialisé
-let STATE_INIT     i32 = 2;   // Init appelé avec succès
-let STATE_STARTED  i32 = 3;   // instance démarrée (prête à travailler)
-let STATE_STOPPED  i32 = 4;   // arrêtée mais encore chargée
-let STATE_ERROR    i32 = 5;   // erreur lors du chargement/init
+var _instanceHandles: <array> = [nullptr; MAX_INSTANCES];
+var _instanceNames:   <array> = [null;    MAX_INSTANCES];
+var _displayNames:    <array> = [null;    MAX_INSTANCES];
+var _versions:        <array> = [null;    MAX_INSTANCES];
+var _entryPoints:     <array> = [nullptr; MAX_INSTANCES];
+var _instanceState:   <array> = [0;       MAX_INSTANCES];
+var _lastError:       <array> = [0;       MAX_INSTANCES];
+var _refCount:        <array> = [0;       MAX_INSTANCES];
+var _instanceCount:   <i32>   = 0;
 
-// Tableaux internes (mutables) pour stocker les métadonnées de chaque instance
-var _instanceHandles:   array = [0; MAX_INSTANCES]; // pointeur dlopen
-var _instanceNames:     array = [null;    MAX_INSTANCES]; // chemin du fichier .so/.mara
-var _displayNames:      array = [null;    MAX_INSTANCES]; // nom lisible de l’instance
-var _versions:          array = [null;    MAX_INSTANCES]; // chaîne de version (ex. "1.2.3")
-var _entryPoints:       array = [0; MAX_INSTANCES]; // pointeur vers la fonction d’entrée (ex. app_main)
-var _instanceState:     array = [STATE_UNLOADED; MAX_INSTANCES]; // état actuel
-var _lastError:         array = [0;       MAX_INSTANCES]; // code d’erreur dernier appel
-var _refCount:          array = [0;       MAX_INSTANCES]; // nombre de références (pour partage)
-
-// -----------------------------------------------------------------
-// Fonction interne : recherche d’un slot libre.
-// Retourne l’index si trouvé, sinon -1.
-// -----------------------------------------------------------------
+// Recherche d'un slot libre (privé)
 rel cl _FindFreeSlot: [] [
-    let i i32 = 0;
+    var i: <i32> = 0;
     loop i < MAX_INSTANCES [
-        if (_instanceState[i] == STATE_UNLOADED) then [
-            ret i;
-        ];
+        if (_instanceState[i] == STATE_UNLOADED) [ ret i; ];
         i = i + 1;
     ];
     ret -1;
 ];
 
-// -----------------------------------------------------------------
-// Fonction interne : validation d’un index d’instance.
-// Retourne true si l’index est dans les limites et pointe vers une
-// instance chargée (état != UNLOADED).
-// -----------------------------------------------------------------
+// Validation d'un index (privé)
 rel cl _IsValidInstance: [idx i32] [
-    if (idx < 0 || idx >= MAX_INSTANCES) then [
-        ret false;
-    ];
-    if (_instanceState[idx] == STATE_UNLOADED) then [
-        ret false;
-    ];
+    if (idx < 0 || idx >= MAX_INSTANCES) [ ret false; ];
+    if (_instanceState[idx] == STATE_UNLOADED) [ ret false; ];
     ret true;
 ];
 
-// -----------------------------------------------------------------
-// Crée une nouvelle instance à partir du chemin fourni.
-// Retourne l’ID d’instance (index) ou -1 en cas d’échec.
-// -----------------------------------------------------------------
-rel cl CreateInstance: [modulePath String, displayName String, version String] [
-    // 1. Trouver un slot libre
-    let slot i32 = _FindFreeSlot();
-    if (slot == -1) then [
-        log: "CreateInstance failed – no free slots (max " + MAX_INSTANCES + ").";
+// CreateInstance – crée une instance à partir du chemin fourni
+rel cl CreateInstance: [modulePath string, displayName string, version string] [
+    let slot: <i32> = _FindFreeSlot();
+    if (slot == -1) [
+        log: "DrvInstance: aucun slot disponible (max " + MAX_INSTANCES + ")";
         ret -1;
     ];
 
-    // 2. Charger le binaire/module via DrvManSpec (inclut vérif. intégrité)
-    let handle i32 = <DrvManSpec***LoadDriver***>(modulePath);
-    if (handle == 0) then [
-        log: "CreateInstance failed – LoadDriver returned nullptr for '" + modulePath + "'.;
-        _lastError[slot] = -1;   // code générique d’échec de chargement
+    let handle: <ptr> = <DrvManSpec***LoadDriver***>(modulePath);
+    if (handle == nullptr) [
+        log: "DrvInstance: LoadDriver échoué – " + modulePath;
+        _lastError[slot] = -1;
         ret -1;
     ];
 
-    // 3. Initialiser l’instance (appelle InitDriver qui, dans le cas d’un module
-    //    applicatif, devrait appeler une fonction d’initialisation exportée).
-    let initRes i32 = <DrvManSpec***InitDriver***>(handle);
-    if (initRes != 0) then [
-        log: "CreateInstance failed – InitDriver returned " + initRes + " for '" + modulePath + "'.;
-        // Nettoyage : décharger le handle car l’initialisation a échoué
-        let _ = dlclose(handle);
-        _instanceHandles[slot] = 0;
+    let initRes: <i32> = <DrvManSpec***InitDriver***>(handle);
+    if (initRes != 0) [
+        log: "DrvInstance: InitDriver échoué – " + initRes;
         _lastError[slot] = initRes;
         ret -1;
     ];
 
-    // 4. Récupérer les métadonnées depuis le module chargé
-    //    On suppose que le module exporte les fonctions suivantes :
-    //        const char* module_get_display_name(void);
-    //        const char* module_get_version(void);
-    //        void*       module_get_entry_point(void);
-    //    Si une fonction n’est pas trouvée, on utilise les valeurs fournies
-    //    en paramètres et on logge un avertissement.
+    _instanceHandles[slot] = handle;
+    _instanceNames[slot]   = modulePath;
+    _displayNames[slot]    = displayName;
+    _versions[slot]        = version;
+    _instanceState[slot]   = STATE_INIT;
+    _lastError[slot]       = 0;
+    _refCount[slot]        = 1;
+    _instanceCount         = _instanceCount + 1;
 
-    // ---- Display name ----
-    let dispFunc i32 = dlsym(handle, "module_get_display_name");
-    if (dispFunc == 0) then [
-        log: "CreateInstance – module_get_display_name not found in '" + modulePath + "'; using provided name.";
-        _displayNames[slot] = displayName;
-    ] else [
-        let namePtr i32 = (<cstd***const char* (*)()***>dispFunc)();
-        _displayNames[slot] = namePtr;
-    ];
-
-    // ---- Version ----
-    let versFunc ptr = dlsym(handle, "module_get_version");
-    if (versFunc == nullptr) then [
-        log: "CreateInstance – module_get_version not found in '" + modulePath + "'; using provided version.";
-        _versions[slot] = version;
-    ] else [
-        let verPtr i32 = (<cstd***const char* (*)()***>versFunc)();
-        _versions[slot] = verPtr;
-    ];
-
-    // ---- Entry point ----
-    let entryFunc ptr = dlsym(handle, "module_get_entry_point");
-    if (entryFunc == nullptr) then [
-        log: "CreateInstance – module_get_entry_point not found in '" + modulePath + "'; entry point will be null.";
-        _entryPoints[slot] = nullptr;
-    ] else [
-        let entryPtr i32 = (<cstd***void* (*)()***>entryFunc)();
-        _entryPoints[slot] = entryPtr;
-    ];
-
-    // 5. Remplir les autres champs
-    _instanceHandles[slot]   = handle;
-    _instanceNames[slot]     = modulePath;
-    _instanceState[slot]     = STATE_INIT;   // chargé + initialisé, pas encore démarré
-    _lastError[slot]         = 0;
-    _refCount[slot]          = 1;
-
-    // 6. Log d’accès via PAccessAuth
-    let granted bool = <PAccessAuth***LogAccess***>("InstanceManager", modulePath, true);
-    if (granted == false) then [
-        log: "CreateInstance – access denied by PAccessAuth for '" + modulePath + "'.;
+    let authorized: <bool> = <PAccessAuth***IsAuthorized***>(1);
+    if (authorized == false) [
+        log: "DrvInstance: accès refusé par PAccessAuth – " + modulePath;
         _lastError[slot] = -2;
     ];
 
-    log: "CreateInstance succeeded – instance ID " + slot + " for '" + modulePath + "'.;
+    log: "DrvInstance: instance " + slot + " créée – " + modulePath;
     ret slot;
 ];
 
-// -----------------------------------------------------------------
-// Démarre une instance (passe de INIT à STARTED).
-// Retourne 0 en cas de succès, -1 sinon.
-// -----------------------------------------------------------------
+// StartInstance – démarre une instance (INIT → STARTED)
 rel cl StartInstance: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "StartInstance failed – invalid instance ID " + instId;
+    if (!_IsValidInstance(instId)) [
+        log: "DrvInstance: StartInstance – ID invalide " + instId;
         ret -1;
     ];
-    if (_instanceState[instId] != STATE_INIT) then [
-        log: "StartInstance failed – instance " + instId + " not in INIT state (current " + _instanceState[instId] + ").";
+    if (_instanceState[instId] != STATE_INIT) [
+        log: "DrvInstance: StartInstance – état invalide " + _instanceState[instId];
         ret -1;
     ];
 
-    // Si un point d’entrée est disponible, on l’appelle pour démarrer l’instance.
-    let entryPtr ptr = _entryPoints[instId];
-    let startRes i32 = 0;
-    if (entryPtr != nullptr) then [
-        // On suppose que la fonction d’entrée a la signature : int (*)(void)
-        let startRes i32 = (<cstd***int (*)()***>entryPtr)();
-    ] else [
-        log: "StartInstance – no entry point found for instance " + instId + "; considering start as successful.";
-    ];
-
-    if (startRes != 0) then [
-        log: "StartInstance failed – entry point returned " + startRes + " for instance " + instId;
-        _instanceState[instId] = STATE_ERROR;
-        _lastError[instId] = startRes;
-        ret -1;
+    let entryPtr: <ptr> = _entryPoints[instId];
+    if (entryPtr != nullptr) [
+        let startRes: <i32> = <DrvAPIInterCon***InstanceStart***>(entryPtr);
+        if (startRes != 0) [
+            _instanceState[instId] = STATE_ERROR;
+            _lastError[instId] = startRes;
+            log: "DrvInstance: StartInstance échoué – " + startRes;
+            ret -1;
+        ];
     ];
 
     _instanceState[instId] = STATE_STARTED;
-    log: "StartInstance succeeded – instance " + instId + " now STARTED.";
+    log: "DrvInstance: instance " + instId + " démarrée";
     ret 0;
 ];
 
-// -----------------------------------------------------------------
-// Arrête une instance (passe de STARTED à STOPPED).
-// Retourne 0 en cas de succès, -1 sinon.
-// -----------------------------------------------------------------
+// StopInstance – arrête une instance (STARTED → STOPPED)
 rel cl StopInstance: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "StopInstance failed – invalid instance ID " + instId;
+    if (!_IsValidInstance(instId)) [
+        log: "DrvInstance: StopInstance – ID invalide " + instId;
         ret -1;
     ];
-    if (_instanceState[instId] != STATE_STARTED) then [
-        log: "StopInstance failed – instance " + instId + " not in STARTED state (current " + _instanceState[instId] + ").";
-        ret -1;
-    ];
-
-    // On suppose que le module fournit une fonction de nettoyage
-    // (ex. module_cleanup) ; si non présente, on considère l’arrêt comme logique.
-    let stopRes i32 = 0;
-    let cleanupPtr i32 = dlsym(_instanceHandles[instId], "module_cleanup");
-    if (cleanupPtr != nullptr) then [
-        let stopRes i32 = (<cstd***int (*)()***>cleanupPtr)();
-    ] else [
-        log: "StopInstance – no cleanup function found for instance " + instId + "; considering stop as successful.";
-    ];
-
-    if (stopRes != 0) then [
-        log: "StopInstance failed – cleanup returned " + stopRes + " for instance " + instId;
-        _instanceState[instId] = STATE_ERROR;
-        _lastError[instId] = stopRes;
+    if (_instanceState[instId] != STATE_STARTED) [
+        log: "DrvInstance: StopInstance – instance non démarrée";
         ret -1;
     ];
 
     _instanceState[instId] = STATE_STOPPED;
-    log: "StopInstance succeeded – instance " + instId + " now STOPPED.";
+    log: "DrvInstance: instance " + instId + " arrêtée";
     ret 0;
 ];
 
-// -----------------------------------------------------------------
-// Détruit une instance : décharge le binaire et nettoie les métadonnées.
-// Retourne 0 en cas de succès, -1 sinon.
-// -----------------------------------------------------------------
+// DestroyInstance – libère les ressources d'une instance
 rel cl DestroyInstance: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "DestroyInstance failed – invalid instance ID " + instId;
+    if (!_IsValidInstance(instId)) [
+        log: "DrvInstance: DestroyInstance – ID invalide " + instId;
         ret -1;
     ];
-    // On ne permet la destruction que si l’instance est arrêtée ou non initialisée
-    if (_instanceState[instId] == STATE_STARTED) then [
-        log: "DestroyInstance failed – instance " + instId + " is still STARTED. Stop it first.";
+    if (_instanceState[instId] == STATE_STARTED) [
+        log: "DrvInstance: DestroyInstance – arrêtez l'instance d'abord";
         ret -1;
     ];
 
-    // Décrémenter le compteur de références
     _refCount[instId] = _refCount[instId] - 1;
-    if (_refCount[instId] > 0) then [
-        log: "DestroyInstance – ref count still " + _refCount[instId] + ", keeping instance alive.";
-        ret 0;
+    if (_refCount[instId] > 0) [ ret 0; ];
+
+    let handle: <ptr> = _instanceHandles[instId];
+    if (handle != nullptr) [
+        let _: <i32> = <DrvAPIInterCon***InstanceUnload***>(handle);
     ];
 
-    // Décharger le binaire
-    let handle ptr = _instanceHandles[instId];
-    if (handle != nullptr) then [
-        let closeRes i32 = dlclose(handle);
-        if (closeRes != 0) then [
-            log: "DestroyInstance – dlclose returned " + closeRes + " for instance " + instId;
-            // On continue le nettoyage malgré l’erreur de fermeture.
-        ];
-    ];
-
-    // Réinitialiser les entrées
-    _instanceHandles[instId] = 0;
+    _instanceHandles[instId] = nullptr;
     _instanceNames[instId]   = null;
     _displayNames[instId]    = null;
     _versions[instId]        = null;
@@ -278,86 +161,33 @@ rel cl DestroyInstance: [instId i32] [
     _instanceState[instId]   = STATE_UNLOADED;
     _lastError[instId]       = 0;
     _refCount[instId]        = 0;
+    _instanceCount           = _instanceCount - 1;
 
-    log: "DestroyInstance succeeded – instance " + instId + " cleaned up.";
+    log: "DrvInstance: instance " + instId + " détruite";
     ret 0;
 ];
 
-// -----------------------------------------------------------------
-// Retourne l’état actuel d’une instance (enum décrit en haut).
-// -----------------------------------------------------------------
+// GetInstanceState – retourne l'état courant d'une instance
 rel cl GetInstanceState: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "GetInstanceState failed – invalid instance ID " + instId;
-        ret STATE_UNLOADED;
-    ];
+    if (!_IsValidInstance(instId)) [ ret STATE_UNLOADED; ];
     ret _instanceState[instId];
 ];
 
-// -----------------------------------------------------------------
-// Retourne une chaîne lisible contenant les métadonnées de l’instance.
-// Format : "ID:<id> PATH:<path> DISPLAY:<display> VER:<ver> STATE:<state> ERR:<err>"
-// -----------------------------------------------------------------
-rel cl GetInstanceInfo: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "GetInstanceInfo failed – invalid instance ID " + instId;
-        ret "INVALID_INSTANCE";
-    ];
-    let info String = "ID:" + instId +
-                      " PATH:" + _instanceNames[instId] +
-                      " DISPLAY:" + _displayNames[instId] +
-                      " VER:" + _versions[instId] +
-                      " STATE:" + _instanceState[instId] +
-                      " ERR:" + _lastError[instId];
-    log: "GetInstanceInfo for instance " + instId + ": " + info;
-    ret info;
-];
-
-// -----------------------------------------------------------------
-// Fonction utilitaire : augmente le compteur de références d’une instance
-// (utile lorsqu’un même module est partagé par plusieurs composants).
-// Retourne le nouveau compteur ou -1 si l’instance est invalide.
-// -----------------------------------------------------------------
+// AddRefInstance – incrémente le compteur de références
 rel cl AddRefInstance: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "AddRefInstance failed – invalid instance ID " + instId;
-        ret -1;
-    ];
-    let newCount i32 = _refCount[instId] + 1;
-    _refCount[instId] = newCount;
-    log: "AddRefInstance – instance " + instId + " ref count now " + newCount;
-    ret newCount;
+    if (!_IsValidInstance(instId)) [ ret -1; ];
+    _refCount[instId] = _refCount[instId] + 1;
+    ret _refCount[instId];
 ];
 
-// -----------------------------------------------------------------
-// Fonction utilitaire : diminue le compteur de références et détruit
-// l’instance si le compteur atteint zéro.
-// Retourne 0 si l’instance a été détruite, 1 si elle reste vivante,
-// -1 en cas d’erreur.
-// -----------------------------------------------------------------
+// ReleaseInstance – décrémente le compteur et détruit si zéro
 rel cl ReleaseInstance: [instId i32] [
-    if (!_IsValidInstance(instId)) then [
-        log: "ReleaseInstance failed – invalid instance ID " + instId;
-        ret -1;
+    if (!_IsValidInstance(instId)) [ ret -1; ];
+    if (_refCount[instId] == 0) [ ret -1; ];
+    _refCount[instId] = _refCount[instId] - 1;
+    if (_refCount[instId] == 0) [
+        let _: <i32> = DestroyInstance(instId);
+        ret 0;
     ];
-    if (_refCount[instId] == 0) then [
-        log: "ReleaseInstance – instance " + instId + " already has zero refs.";
-        ret -1;
-    ];
-    let newCount i32 = _refCount[instId] - 1;
-    _refCount[instId] = newCount;
-    if (newCount == 0) then [
-        // Détruire réellement l’instance
-        let destroyRes i32 = <DrvInstance***DestroyInstance***>(instId);
-        if (destroyRes == 0) then [
-            log: "ReleaseInstance – instance " + instId + " destroyed (ref count reached 0).";
-            ret 0;   // indiquer que l’instance a été détruite
-        ] else [
-            log: "ReleaseInstance – failed to destroy instance " + instId + " (error " + destroyRes + ").";
-            return -1;
-        ];
-    ] else [
-        log: "ReleaseInstance – instance " + instId + " ref count now " + newCount;
-        ret 1;   // indiquer que l’instance reste vivante
-    ];
+    ret 1;
 ];

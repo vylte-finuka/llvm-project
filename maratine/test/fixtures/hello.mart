@@ -1,22 +1,55 @@
-// Vyft Ltd - Maratine Hello World Test
+//===================================================================
+//  hello.mart — Fixture de test Hello Slura
+//  Projet : maratine-cc test
+//  Description :
+//      Programme de démonstration Mara minimal.
+//      Déclare un composant HelloSlura, affiche un message
+//      et retourne 0.
+//===================================================================
 
-std***maratine_sdk***MaratineRuntime;
+#base <std***core***self***[ ComponentView, RenderContext ]>;
+#base <MaratineKit>;
 
-// Fonction publique principale
-rel op main[ 
+var message: <string> = "Hello from Slura !";
+var exitCode: <i32>   = 0;
 
-    let greeting: "Hello from Maratine!"
-    
-    if sendit [
-        log: greeting
-    ]
-    
-]
+rel op HelloSlura: <[string ComponentView]>t [
 
-// Fonction privée helper
-rel cl formatOutput[
+    var ctx: <string> = "";
 
-    let prefix: "[Output] "
-    let suffix: " [/Output]"
-    
-]
+    rel op Create: [renderCtx string] [
+        ctx = renderCtx;
+        log: "HelloSlura: Create()";
+        ret ctx;
+    ];
+
+    rel op Render: [view string, renderCtx string] [
+        let result: <i32> = <DrvAPIInterCon***GpuFlushRenderContext***>(renderCtx);
+
+        if (result != 0) [
+            log: "HelloSlura: erreur rendu – " + result;
+            ret result;
+        ];
+
+        log: "HelloSlura: *** " + message + " ***";
+        ret 0;
+    ];
+
+    rel cl Destroy: [view string, renderCtx string] [
+        let _: <i32> = <DrvAPIInterCon***RenderContext***Detach***>(renderCtx, view);
+        ret 0;
+    ];
+];
+
+rel op main: [] [
+    let ctx: <[string RenderContext]> = <MaratineKit***RenderContext***New***()>;
+    let view: <[string ComponentView]> = <HelloSlura***Create***>(ctx);
+    let r: <i32> = <HelloSlura***Render***>(view, ctx);
+
+    if (r != 0) [
+        log: "main: erreur – " + r;
+        ret r;
+    ];
+
+    ret 0;
+];

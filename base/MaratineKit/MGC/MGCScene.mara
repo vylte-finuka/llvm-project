@@ -1,0 +1,184 @@
+//===================================================================
+//  MGCScene.mara – Maratine Graphical Compute — Scene Graph
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Graphe de scène hiérarchique. Entités avec Transform (TRS),
+//      MeshRenderer, Light, Camera, Skybox. Frustum culling GPU.
+//      Gestion de 4096 entités max, 64 lumières dynamiques.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+#base <MaratineKit***MGC***MGCRenderer>;
+#base <MaratineKit***MGC***MGCMesh>;
+#base <MaratineKit***MGC***MGCTexture>;
+#base <MaratineKit***MGC***MGCCompute>;
+
+let ENTITY_NONE:      <i32> = -1;
+let MAX_ENTITIES:     <i32> = 4096;
+let MAX_LIGHTS:       <i32> = 64;
+let MAX_CAMERAS:      <i32> = 4;
+
+let COMP_TRANSFORM:   <i32> = 1;
+let COMP_MESH:        <i32> = 2;
+let COMP_LIGHT:       <i32> = 4;
+let COMP_CAMERA:      <i32> = 8;
+
+let LIGHT_DIRECTIONAL: <i32> = 0;
+let LIGHT_POINT:       <i32> = 1;
+let LIGHT_SPOT:        <i32> = 2;
+
+let SCENE_OK:          <i32> = 0;
+let SCENE_ERR_FULL:    <i32> = -1;
+let SCENE_ERR_INVALID: <i32> = -2;
+let SCENE_ERR_NOENT:   <i32> = -3;
+
+var _entityNames:     <array> = [null;    MAX_ENTITIES];
+var _entityMasks:     <array> = [0;       MAX_ENTITIES];
+var _entityParents:   <array> = [-1;      MAX_ENTITIES];
+var _entityMeshNames: <array> = [null;    MAX_ENTITIES];
+var _entityMatNames:  <array> = [null;    MAX_ENTITIES];
+var _entityCount:     <i32>   = 0;
+
+var _lightTypes:      <array> = [0;       MAX_LIGHTS];
+var _lightColors:     <array> = [nullptr; MAX_LIGHTS];
+var _lightIntens:     <array> = [0;       MAX_LIGHTS];
+var _lightCount:      <i32>   = 0;
+
+var _activeCamera:    <i32>   = 0;
+var _sunDir:          <ptr>   = nullptr;
+var _skyboxName:      <string> = "";
+var _instanceSSBO:    <ptr>   = nullptr;
+var _visibilitySSBO:  <ptr>   = nullptr;
+
+// Cherche entité par nom (privé)
+rel cl _findEntity: [name string] [
+    var i: <i32> = 0;
+    loop i < _entityCount [
+        if (_entityNames[i] == name) [ ret i; ];
+        i = i + 1;
+    ];
+    ret ENTITY_NONE;
+];
+
+// Init – alloue les SSBOs partagés pour le culling GPU
+rel op Init: [] [
+    _instanceSSBO   = <DrvAPIInterCon***GpuSSBOCreate***>(MAX_ENTITIES * 80);
+    _visibilitySSBO = <DrvAPIInterCon***GpuSSBOCreate***>(MAX_ENTITIES * 4);
+    ret SCENE_OK;
+];
+
+// CreateEntity – crée une entité nommée dans la scène
+rel op CreateEntity: [name string] [
+    if (name == null || name == "") [ ret SCENE_ERR_INVALID; ];
+    if (_entityCount >= MAX_ENTITIES) [ ret SCENE_ERR_FULL; ];
+    let idx: <i32> = _entityCount;
+    _entityNames[idx]  = name;
+    _entityMasks[idx]  = COMP_TRANSFORM;
+    _entityParents[idx] = ENTITY_NONE;
+    _entityCount = _entityCount + 1;
+    ret idx;
+];
+
+// SetMesh – attache un mesh et un matériau à une entité
+rel op SetMesh: [entityName string, meshName string, matName string] [
+    let idx: <i32> = _findEntity(entityName);
+    if (idx == ENTITY_NONE) [ ret SCENE_ERR_NOENT; ];
+    _entityMeshNames[idx] = meshName;
+    _entityMatNames[idx]  = matName;
+    _entityMasks[idx] = _entityMasks[idx] | COMP_MESH;
+    ret SCENE_OK;
+];
+
+// SetParent – attache une entité à un parent (hiérarchie TRS)
+rel op SetParent: [childName string, parentName string] [
+    let cidx: <i32> = _findEntity(childName);
+    let pidx: <i32> = _findEntity(parentName);
+    if (cidx == ENTITY_NONE || pidx == ENTITY_NONE) [ ret SCENE_ERR_NOENT; ];
+    _entityParents[cidx] = pidx;
+    ret SCENE_OK;
+];
+
+// AddDirectionalLight – lumière directionnelle (soleil)
+rel op AddDirectionalLight: [dir ptr, color ptr, intensity i32] [
+    if (_lightCount >= MAX_LIGHTS) [ ret SCENE_ERR_FULL; ];
+    _lightTypes[_lightCount]  = LIGHT_DIRECTIONAL;
+    _lightColors[_lightCount] = color;
+    _lightIntens[_lightCount] = intensity;
+    _sunDir = dir;
+    _lightCount = _lightCount + 1;
+    ret SCENE_OK;
+];
+
+// AddPointLight – lumière ponctuelle
+rel op AddPointLight: [position ptr, color ptr, intensity i32, radius i32] [
+    if (_lightCount >= MAX_LIGHTS) [ ret SCENE_ERR_FULL; ];
+    _lightTypes[_lightCount]  = LIGHT_POINT;
+    _lightColors[_lightCount] = color;
+    _lightIntens[_lightCount] = intensity;
+    _lightCount = _lightCount + 1;
+    let _: <i32> = <DrvAPIInterCon***SceneLightSetRadius***>(_lightCount - 1, radius);
+    ret SCENE_OK;
+];
+
+// SetSkybox – définit la cubemap du ciel
+rel op SetSkybox: [cubemapName string] [
+    _skyboxName = cubemapName;
+    let _: <i32> = <MGCRenderer***SetIBL***>(cubemapName);
+    ret SCENE_OK;
+];
+
+// Render – rendu complet de la scène pour la frame courante
+rel op Render: [] [
+    // Culling GPU : détermine les entités visibles
+    if (_instanceSSBO != nullptr) [
+        let frustum: <ptr> = <DrvAPIInterCon***CameraGetFrustum***(_activeCamera)>;
+        let _: <i32> = <MGCCompute***DispatchCulling***>(
+            _instanceSSBO, _visibilitySSBO, _entityCount, frustum
+        );
+        let _: <i32> = <MGCCompute***SyncAll***()>;
+    ];
+
+    // Upload état des lumières dans le UBO
+    let _: <i32> = <DrvAPIInterCon***SceneLightUpload***>(_lightColors, _lightIntens, _lightCount);
+
+    // Rendu PBR complet
+    let _: <i32> = <MGCRenderer***DrawFrame***>(_sunDir);
+
+    ret SCENE_OK;
+];
+
+// DestroyEntity – supprime une entité de la scène
+rel op DestroyEntity: [name string] [
+    let idx: <i32> = _findEntity(name);
+    if (idx == ENTITY_NONE) [ ret SCENE_ERR_NOENT; ];
+    _entityNames[idx]  = null;
+    _entityMasks[idx]  = 0;
+    _entityCount = _entityCount - 1;
+    ret SCENE_OK;
+];
+
+// GetEntityCount – nombre d'entités dans la scène
+rel op GetEntityCount: [] [
+    ret _entityCount;
+];
+
+// Clear – vide complètement la scène
+rel op Clear: [] [
+    var i: <i32> = 0;
+    loop i < MAX_ENTITIES [
+        _entityNames[i]     = null;
+        _entityMasks[i]     = 0;
+        _entityMeshNames[i] = null;
+        _entityMatNames[i]  = null;
+        _entityParents[i]   = ENTITY_NONE;
+        i = i + 1;
+    ];
+    _entityCount = 0;
+    _lightCount  = 0;
+    _skyboxName  = "";
+    ret SCENE_OK;
+];

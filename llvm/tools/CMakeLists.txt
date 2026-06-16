@@ -35,12 +35,9 @@ add_llvm_tool_subdirectory(llvm-config)
 add_llvm_tool_subdirectory(llvm-ctxprof-util)
 add_llvm_tool_subdirectory(llvm-lto)
 add_llvm_tool_subdirectory(llvm-profdata)
-<<<<<<< HEAD
 add_llvm_tool_subdirectory(maralang)
-=======
 add_llvm_tool_subdirectory(llvm-nm)
 add_llvm_tool_subdirectory(llvm-readobj)
->>>>>>> e26e9ba06f46f9619bb6d2df40850a54559640ce
 
 # Projects supported via LLVM_EXTERNAL_*_SOURCE_DIR need to be explicitly
 # specified.

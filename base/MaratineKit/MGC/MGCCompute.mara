@@ -1,0 +1,148 @@
+//===================================================================
+//  MGCCompute.mara – Maratine Graphical Compute — GPU Compute
+//  Module : base/MaratineKit/MGC
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Couche GPU Compute de MGC. Dispatch asynchrone de compute
+//      shaders pour : simulation de particules, culling GPU,
+//      génération procédurale de terrain, simulation de tissu,
+//      occlusion culling, pathfinding parallèle.
+//===================================================================
+
+#base <MaratineKit>;
+#base <std***mem***[ MaraMem ]>;
+#base <MaratineKit***MGC***MGCCore>;
+#base <MaratineKit***MGC***MGCShader>;
+
+let COMPUTE_PARTICLES:   <i32> = 0;
+let COMPUTE_CULLING:     <i32> = 1;
+let COMPUTE_TERRAIN:     <i32> = 2;
+let COMPUTE_CLOTH:       <i32> = 3;
+let COMPUTE_PATHFINDING: <i32> = 4;
+let COMPUTE_SKINNING:    <i32> = 5;
+
+let MAX_COMPUTE_JOBS: <i32> = 64;
+let WORKGROUP_SIZE:   <i32> = 64;
+
+let COMP_OK:          <i32> = 0;
+let COMP_ERR_SUBMIT:  <i32> = -1;
+let COMP_ERR_WAIT:    <i32> = -2;
+let COMP_ERR_INVALID: <i32> = -3;
+let COMP_ERR_FULL:    <i32> = -4;
+
+var _jobHandles:  <array> = [nullptr; MAX_COMPUTE_JOBS];
+var _jobTypes:    <array> = [0;       MAX_COMPUTE_JOBS];
+var _jobSSBOs:    <array> = [nullptr; MAX_COMPUTE_JOBS];
+var _jobCount:    <i32>   = 0;
+var _pendingJobs: <i32>   = 0;
+
+// Calcule le nombre de groupes de travail (privé)
+rel cl _numGroups: [itemCount i32] [
+    ret (itemCount + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+];
+
+// DispatchParticles – simule count particules sur le GPU
+rel op DispatchParticles: [particleSSBO ptr, count i32, deltaMs i32] [
+    if (particleSSBO == nullptr || count <= 0) [ ret COMP_ERR_INVALID; ];
+    if (_jobCount >= MAX_COMPUTE_JOBS) [ ret COMP_ERR_FULL; ];
+
+    let shHandle: <ptr> = <MGCShader***Get***>("builtin_7");
+    if (shHandle == nullptr) [ ret COMP_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Particles", particleSSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_Count", count);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_DeltaMs", deltaMs);
+
+    let jobHandle: <ptr> = <DrvAPIInterCon***GpuComputeDispatch***>(ctx, _numGroups(count), 1, 1);
+    if (jobHandle == nullptr) [ ret COMP_ERR_SUBMIT; ];
+
+    _jobHandles[_jobCount] = jobHandle;
+    _jobTypes[_jobCount]   = COMPUTE_PARTICLES;
+    _jobSSBOs[_jobCount]   = particleSSBO;
+    _jobCount    = _jobCount + 1;
+    _pendingJobs = _pendingJobs + 1;
+    ret COMP_OK;
+];
+
+// DispatchCulling – frustum culling GPU de instanceCount objets
+rel op DispatchCulling: [instanceSSBO ptr, visibilitySSBO ptr, instanceCount i32, cameraFrustum ptr] [
+    if (instanceSSBO == nullptr || visibilitySSBO == nullptr) [ ret COMP_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let shHandle: <ptr> = <DrvAPIInterCon***GpuGetBuiltinComputeShader***>(COMPUTE_CULLING);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Instances",   instanceSSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Visibility",  visibilitySSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUBO***>(ctx, "u_Frustum", cameraFrustum, 96);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_Count", instanceCount);
+
+    let jobHandle: <ptr> = <DrvAPIInterCon***GpuComputeDispatch***>(
+        ctx, _numGroups(instanceCount), 1, 1
+    );
+    if (jobHandle == nullptr) [ ret COMP_ERR_SUBMIT; ];
+
+    _jobCount    = _jobCount + 1;
+    _pendingJobs = _pendingJobs + 1;
+    ret COMP_OK;
+];
+
+// DispatchTerrain – génération procédurale de heightmap via noise GPU
+rel op DispatchTerrain: [heightmapSSBO ptr, resolution i32, seed i32, scale i32] [
+    if (heightmapSSBO == nullptr || resolution <= 0) [ ret COMP_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let shHandle: <ptr> = <DrvAPIInterCon***GpuGetBuiltinComputeShader***>(COMPUTE_TERRAIN);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Heightmap", heightmapSSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_Resolution", resolution);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_Seed", seed);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_Scale", scale);
+
+    let groups: <i32> = _numGroups(resolution * resolution);
+    let jobHandle: <ptr> = <DrvAPIInterCon***GpuComputeDispatch***>(ctx, groups, 1, 1);
+    if (jobHandle == nullptr) [ ret COMP_ERR_SUBMIT; ];
+
+    _jobCount    = _jobCount + 1;
+    _pendingJobs = _pendingJobs + 1;
+    ret COMP_OK;
+];
+
+// DispatchCloth – simulation tissu (vêtements, drapeaux)
+rel op DispatchCloth: [vertexSSBO ptr, constraintSSBO ptr, vertCount i32, deltaMs i32] [
+    if (vertexSSBO == nullptr) [ ret COMP_ERR_INVALID; ];
+
+    let ctx: <ptr> = <MGCCore***GetGpuCtx***()>;
+    let shHandle: <ptr> = <DrvAPIInterCon***GpuGetBuiltinComputeShader***>(COMPUTE_CLOTH);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindShader***>(ctx, shHandle);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Vertices",    vertexSSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdBindSSBO***>(ctx, "b_Constraints", constraintSSBO);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_VertCount", vertCount);
+    let _: <i32> = <DrvAPIInterCon***GpuCmdSetUniformI32***>("u_DeltaMs",   deltaMs);
+
+    let jobHandle: <ptr> = <DrvAPIInterCon***GpuComputeDispatch***>(
+        ctx, _numGroups(vertCount), 1, 1
+    );
+    if (jobHandle == nullptr) [ ret COMP_ERR_SUBMIT; ];
+
+    _jobCount    = _jobCount + 1;
+    _pendingJobs = _pendingJobs + 1;
+    ret COMP_OK;
+];
+
+// SyncAll – attend la fin de tous les jobs compute en cours
+rel op SyncAll: [] [
+    if (_pendingJobs == 0) [ ret COMP_OK; ];
+    let result: <i32> = <DrvAPIInterCon***GpuComputeWaitAll***>(_jobHandles, _jobCount);
+    if (result != 0) [ ret COMP_ERR_WAIT; ];
+    _pendingJobs = 0;
+    _jobCount    = 0;
+    ret COMP_OK;
+];
+
+// GetPendingJobCount – nombre de jobs GPU en attente
+rel op GetPendingJobCount: [] [
+    ret _pendingJobs;
+];

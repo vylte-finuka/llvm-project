@@ -1,0 +1,59 @@
+//===================================================================
+//  HelloWorld.mara – Composant exemple Hello Slura
+//  Projet : MaratineProjectAppTemplate.marep
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Composant de démonstration Maratine.
+//      Affiche "Bonjour Slura !" dans l'UI via RenderContext
+//      et dans la console système via log:.
+//      Appelé depuis LAPrevent.onCreate().
+//===================================================================
+
+#base <std***core***self***[ ComponentView, RenderContext, TextLabel ]>;
+#base <MaratineKit>;
+
+// HelloWorld – composant public réutilisable
+rel op HelloWorld: <[string ComponentView]>t [
+
+    var message: <string> = "Bonjour Slura !";
+    var bgColor: <string> = "#000000";
+    var fgColor: <string> = "#FFFFFF";
+
+    // Create – instancie le composant dans un contexte de rendu
+    rel op Create: [ctx string] [
+        log: "HelloWorld: Create()";
+
+        let label: <[string TextLabel]> = <MaratineKit***UI***TextLabel***New>(
+            message,
+            fgColor,
+            bgColor
+        );
+
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetAlign>(label, "center");
+        let _: <i32> = <MaratineKit***UI***TextLabel***SetFontSize>(label, 24);
+        let _: <i32> = <MaratineKit***RenderContext***Attach>(ctx, label);
+
+        log: "HelloWorld: label créé";
+        ret label;
+    ];
+
+    // Render – déclenche le rendu à l'écran
+    rel op Render: [view string, ctx string] [
+        let gpuResult: <i32> = <DrvAPIInterCon***GpuFlushRenderContext***>(ctx);
+
+        if (gpuResult != 0) [
+            log: "HelloWorld: erreur rendu – code " + gpuResult;
+            ret gpuResult;
+        ];
+
+        log: "HelloWorld: *** " + message + " ***";
+        ret 0;
+    ];
+
+    // Destroy – libération des ressources (privé)
+    rel cl Destroy: [view string, ctx string] [
+        let _: <i32> = <MaratineKit***RenderContext***Detach>(ctx, view);
+        ret 0;
+    ];
+];

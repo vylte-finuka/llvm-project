@@ -1,95 +1,73 @@
-//___
-//___ CycleActivity.mara – Process Life‑Cycle Manager
-//___ Projet : MaratineProjectAppTemplate.marep
-//___ Auteur : Vyft Ltd
-//___ Licence : Proprietary – 2026
-//___ Description :
-//___     Fonctions appelées lors de la mise sous tension (power‑on)
-//___     et de la mise hors tension (power‑off) d’un processus.
-//___     Permet d’enregistrer des callbacks d’initialisation et de
-//___     nettoyage qui seront exécutés respectivement à l’allumage
-//___     et à l’extinction du processus.
-//___
+//===================================================================
+//  CycleActivity.mara – Process Life-Cycle Manager
+//  Module : base/MaratineKit
+//  Auteur : Vyft Ltd
+//  Licence : Proprietary – 2026
+//  Description :
+//      Gestionnaire de cycle de vie des processus Slura.
+//      Enregistre des callbacks exécutés à l'allumage (OnPowerOn)
+//      et à l'extinction (OnPowerOff) du processus.
+//===================================================================
 
 #base <MaratineKit>;
-#include <cstddef>
 
-//___
-//___ Configuration du gestionnaire de callbacks
-//___
-let MAX_CALLBACKS i32 = 64;                     // capacité maximale pour chaque type de callback
+let MAX_CALLBACKS: <i32> = 64;
 
-// Tableaux internes (mutables) pour stocker les pointeurs de fonctions
-var _initCallbacks: array = [0; MAX_CALLBACKS];   // callbacks d’initialisation
-var _initCount: i32 = 0;                              // nombre actuel d’enregistrements init
+var _initCallbacks:    <array> = [nullptr; MAX_CALLBACKS];
+var _initCount:        <i32>   = 0;
+var _cleanupCallbacks: <array> = [nullptr; MAX_CALLBACKS];
+var _cleanupCount:     <i32>   = 0;
 
-var _cleanupCallbacks: array = [0; MAX_CALLBACKS];// callbacks de nettoyage
-var _cleanupCount: i32 = 0;                           // nombre actuel d’enregistrements cleanup
-
-//___
-//___ Called when the process is powered on
-//___
-rel op OnPowerOn: <> [
-    log: "Process power‑on event received – executing " + _initCount + " init callback(s)";
-    let i i32 = 0;
+// OnPowerOn – exécute les callbacks d'initialisation
+rel op OnPowerOn: [] [
+    log: "CycleActivity: power-on – " + _initCount + " callback(s)";
+    var i: <i32> = 0;
     loop i < _initCount [
-        let cb i32 = _initCallbacks[i];
-        if (cb != 0) then [
-            // Appel du callback enregistré
-            cb();
+        let cb: <ptr> = _initCallbacks[i];
+        if (cb != nullptr) [
+            let _: <i32> = <DrvAPIInterCon***CallbackInvoke***>(cb);
         ];
         i = i + 1;
     ];
     ret 0;
 ];
 
-//___
-//___ Called when the process is powered off
-//___
+// OnPowerOff – exécute les callbacks de nettoyage
 rel cl OnPowerOff: [] [
-    log: "Process power‑off event received – executing " + _cleanupCount + " cleanup callback(s)";
-    let i i32 = 0;
+    log: "CycleActivity: power-off – " + _cleanupCount + " callback(s)";
+    var i: <i32> = 0;
     loop i < _cleanupCount [
-        let cb i32 = _cleanupCallbacks[i];
-        if (cb != 0) then [
-            // Appel du callback enregistré
-            cb();
+        let cb: <ptr> = _cleanupCallbacks[i];
+        if (cb != nullptr) [
+            let _: <i32> = <DrvAPIInterCon***CallbackInvoke***>(cb);
         ];
         i = i + 1;
     ];
     ret 0;
 ];
 
-//___
-//___ Enregistre un callback d’initialisation.
-//___ Retourne l’identifiant (index) du callback enregistré, ou -1 en cas
-//___ d’échec (tableau plein).
-//___
-rel cl RegisterInitCb: <cb i32> [
-    if (_initCount >= MAX_CALLBACKS) then [
-        log: "RegisterInitCb failed – init callback table is full.";
+// RegisterInitCb – enregistre un callback d'initialisation
+rel cl RegisterInitCb: [cb ptr] [
+    if (_initCount >= MAX_CALLBACKS) [
+        log: "CycleActivity: table init pleine";
         ret -1;
     ];
     _initCallbacks[_initCount] = cb;
-    let id i32 = _initCount;
+    let id: <i32> = _initCount;
     _initCount = _initCount + 1;
-    log: "Registered init callback with ID: " + id;
+    log: "CycleActivity: init callback enregistré – id " + id;
     ret id;
 ];
 
-//___
-//___ Enregistre un callback de nettoyage.
-//___ Retourne l’identifiant (index) du callback enregistré, ou -1 en cas
-//___ d’échec (tableau plein).
-//___
-rel cl RegisterCleanupCb: <cb i32> [
-    if (_cleanupCount >= MAX_CALLBACKS) then [
-        log: "RegisterCleanupCb failed – cleanup callback table is full.";
+// RegisterCleanupCb – enregistre un callback de nettoyage
+rel cl RegisterCleanupCb: [cb ptr] [
+    if (_cleanupCount >= MAX_CALLBACKS) [
+        log: "CycleActivity: table cleanup pleine";
         ret -1;
     ];
     _cleanupCallbacks[_cleanupCount] = cb;
-    let id i32 = _cleanupCount;
+    let id: <i32> = _cleanupCount;
     _cleanupCount = _cleanupCount + 1;
-    log: "Registered cleanup callback with ID: " + id;
+    log: "CycleActivity: cleanup callback enregistré – id " + id;
     ret id;
 ];

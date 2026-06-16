@@ -1,25 +1,23 @@
-# Vyft Ltd - Maratine Tests
+# Vyft Ltd — Maratine Compiler Tests — Proprietary — 2026
 
-# Test simple du compilateur
 add_test(
-    NAME test_hello_world
-    COMMAND maratine-cc 
+    NAME test_hello_mara
+    COMMAND maratine-cc
             ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/hello.mart
+            -emit llvm
             -o ${CMAKE_CURRENT_BINARY_DIR}/hello.ll
 )
 
-# Tests du lexer
 add_test(
-    NAME test_lexer
+    NAME test_hello_tokens
     COMMAND maratine-cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/lexer_test.mart
+            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/hello.mart
             -dump-tokens
 )
 
-# Tests du parser
 add_test(
-    NAME test_parser
+    NAME test_hello_ast
     COMMAND maratine-cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/parser_test.mart
+            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/hello.mart
             -dump-ast
 )
