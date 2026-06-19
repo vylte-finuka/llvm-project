@@ -2,6 +2,7 @@
 
 #include "MaratineLexer.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cassert>
 #include <cctype>
 #include <map>
 
@@ -11,6 +12,7 @@ using namespace llvm::maratine;
 Lexer::Lexer(StringRef Src) : Source(Src) {}
 
 char Lexer::peek(int Offset) const {
+  assert(Offset >= 0 && "peek() does not support negative offsets");
   size_t I = Pos + (size_t)Offset;
   if (I >= Source.size()) return '\0';
   return Source[I];
@@ -48,7 +50,13 @@ Token Lexer::lexStringLiteral() {
 
 Token Lexer::lexInteger() {
   size_t Start = Pos;
-  while (std::isdigit(peek())) advance();
+  // Hex literal: 0x / 0X — require at least one hex digit after the prefix.
+  if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X') && std::isxdigit(peek(2))) {
+    advance(); advance(); // consume '0' and 'x'/'X'
+    while (std::isxdigit(peek())) advance();
+  } else {
+    while (std::isdigit(peek())) advance();
+  }
   return makeToken(TokenKind::integer_literal,
                    Source.substr(Start, Pos - Start).str());
 }

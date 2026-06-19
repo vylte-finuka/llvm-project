@@ -1,0 +1,129 @@
+{
+  "name": "maratine-language",
+  "displayName": "Maratine Language",
+  "description": "Coloration syntaxique, diagnostics et completion intelligente pour Mara / Maratine (Slura OS)",
+  "version": "0.1.0",
+  "publisher": "vyft",
+  "icon": "icon.png",
+  "license": "Proprietary",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "mara",
+    "maratine",
+    "slura",
+    "vyft"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vylte-finuka/llvm-project"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "mara",
+        "aliases": [
+          "Mara",
+          "Maratine",
+          "mara"
+        ],
+        "extensions": [
+          ".mara"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icon.png",
+          "dark": "./icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mara",
+        "scopeName": "source.mara",
+        "path": "./syntaxes/maratine.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Maratine",
+      "properties": {
+        "maratine.compiler.path": {
+          "type": "string",
+          "default": "",
+          "description": "Chemin vers maratine-cc.exe (auto-detecte si vide)"
+        },
+        "maratine.marai.path": {
+          "type": "string",
+          "default": "",
+          "description": "Chemin vers marai.exe (auto-detecte si vide)"
+        },
+        "maratine.lsp.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Activer le serveur LSP Maratine (diagnostics, completion, hover)"
+        },
+        "maratine.lsp.trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Niveau de trace LSP (debug)"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "maratine.build",
+        "title": "Maratine: Build projet (.marep / .slul)",
+        "icon": "$(play)"
+      },
+      {
+        "command": "maratine.check",
+        "title": "Maratine: Audit IR (marai check)",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "maratine.dumpAST",
+        "title": "Maratine: Dump AST du fichier courant"
+      },
+      {
+        "command": "maratine.dumpTokens",
+        "title": "Maratine: Dump tokens du fichier courant"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "maratine.build",
+          "when": "resourceExtname == .mara",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

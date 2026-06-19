@@ -65,8 +65,11 @@ Expected<std::unique_ptr<Module>> Parser::parseModule() {
     if (check(TokenKind::hash)) {
       advance(); // consume '#'
       if (!check(TokenKind::kw_base)) {
-        errs() << "Expected 'base' after '#'\n";
-        return mkErr("expected 'base' after '#'");
+        // #include or other unknown directive — skip to ';'
+        while (!check(TokenKind::semi) && !check(TokenKind::eof))
+          advance();
+        if (check(TokenKind::semi)) advance();
+        continue;
       }
       auto Imp = parseImport();
       if (!Imp) return Imp.takeError();
@@ -117,7 +120,8 @@ Expected<std::unique_ptr<ImportDecl>> Parser::parseImport() {
       }
       expectAndConsume(TokenKind::r_square, "']' closing dependency list");
       break;
-    } else if (check(TokenKind::identifier) || isTypeKw(peek().Kind)) {
+    } else if (check(TokenKind::identifier) || check(TokenKind::kw_self) ||
+               isTypeKw(peek().Kind)) {
       PathBuf += peek().Value;
       advance();
     } else {
@@ -305,16 +309,23 @@ Expected<std::unique_ptr<FunctionDecl>> Parser::parseFunction() {
     FD->InheritType = parseInheritanceSuffix();
 
   // Parameter list: [name type, …]
+  // Distinguish from body [ … ] via 2-token look-ahead:
+  //   [ ]             → empty param list
+  //   [ identifier (type_kw | identifier) ] → param list
+  //   anything else   → body, no param list
   SmallVector<Param, 4> Params;
-  if (check(TokenKind::l_square) &&
-      // Distinguish param list [ ] from body [ ]:
-      // peek ahead to see if it looks like [identifier typekeyword
-      // We just try to parse params and fall back if it's the body.
-      // Heuristic: if the content after '[' is `]` or `identifier typekw` it's params.
-      true) {
-    if (!parseParamList(Params))
-      return mkErr("bad parameter list");
-    FD->Params = SmallVector<Param, 4>(Params.begin(), Params.end());
+  if (check(TokenKind::l_square)) {
+    TokenKind p1 = peek(1).Kind;
+    TokenKind p2 = peek(2).Kind;
+    bool looksLikeParams =
+        (p1 == TokenKind::r_square) ||
+        (p1 == TokenKind::identifier &&
+         (isTypeKw(p2) || p2 == TokenKind::identifier));
+    if (looksLikeParams) {
+      if (!parseParamList(Params))
+        return mkErr("bad parameter list");
+      FD->Params = SmallVector<Param, 4>(Params.begin(), Params.end());
+    }
   }
 
   // Body: [ … ]
@@ -517,7 +528,8 @@ Expected<std::unique_ptr<Expr>> Parser::parseFFICall() {
   std::string Path;
   while (!check(TokenKind::r_angle) && !check(TokenKind::eof)) {
     if (check(TokenKind::triple_star)) { Path += "***"; advance(); }
-    else if (check(TokenKind::identifier) || isTypeKw(peek().Kind))
+    else if (check(TokenKind::identifier) || check(TokenKind::kw_self) ||
+             isTypeKw(peek().Kind))
     { Path += peek().Value; advance(); }
     else if (check(TokenKind::l_paren)) {
       // <Fn***()>  — empty inline call
@@ -635,9 +647,15 @@ Expected<std::unique_ptr<Expr>> Parser::parsePrimary() {
     return std::make_unique<StringLiteral>(V);
   }
 
-  // Integer literal
+  // Integer literal — guard against std::out_of_range / std::invalid_argument.
   if (check(TokenKind::integer_literal)) {
-    int64_t V = std::stoll(peek().Value); advance();
+    int64_t V = 0;
+    try {
+      V = std::stoll(peek().Value, nullptr, 0);
+    } catch (const std::exception &) {
+      return mkErr("invalid integer literal '" + peek().Value + "'");
+    }
+    advance();
     return std::make_unique<IntLiteral>(V);
   }
 
@@ -649,9 +667,17 @@ Expected<std::unique_ptr<Expr>> Parser::parsePrimary() {
   if (check(TokenKind::kw_nullptr)) { advance(); return std::make_unique<NullLiteral>(true);  }
   if (check(TokenKind::kw_null))    { advance(); return std::make_unique<NullLiteral>(false); }
 
-  // Identifier: variable reference or function call
+  // Identifier or path: variable ref, method call, or self***method() call
   if (check(TokenKind::identifier) || check(TokenKind::kw_self)) {
     std::string Name = peek().Value; advance();
+    // Handle path expressions: self***method(), Module***Sub***func()
+    while (check(TokenKind::triple_star)) {
+      Name += "***"; advance();
+      if (check(TokenKind::identifier) || check(TokenKind::kw_self) ||
+          isTypeKw(peek().Kind)) {
+        Name += peek().Value; advance();
+      }
+    }
     if (check(TokenKind::l_paren)) {
       advance();
       auto Call = std::make_unique<CallExpr>(Name);

@@ -1,0 +1,204 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Maratine",
+  "scopeName": "source.mara",
+  "fileTypes": ["mara"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#import" },
+    { "include": "#ffi-call" },
+    { "include": "#function-decl" },
+    { "include": "#type-annotation" },
+    { "include": "#keywords" },
+    { "include": "#type-keywords" },
+    { "include": "#constants" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#operator" },
+    { "include": "#path-separator" }
+  ],
+  "repository": {
+
+    "comment": {
+      "name": "comment.line.double-slash.mara",
+      "match": "//.*$"
+    },
+
+    "import": {
+      "patterns": [
+        {
+          "name": "meta.import.base.mara",
+          "match": "(#base)\\s*(<[^>]*>)(;)?",
+          "captures": {
+            "1": { "name": "keyword.other.import.mara" },
+            "2": { "name": "string.other.path.mara" },
+            "3": { "name": "punctuation.terminator.mara" }
+          }
+        },
+        {
+          "name": "meta.import.include.mara",
+          "match": "(#include)\\s*(\"[^\"]*\"|<[^>]*>)",
+          "captures": {
+            "1": { "name": "keyword.other.include.mara" },
+            "2": { "name": "string.quoted.include.mara" }
+          }
+        }
+      ]
+    },
+
+    "ffi-call": {
+      "name": "meta.ffi-call.mara",
+      "begin": "<(?=[A-Za-z_])",
+      "end": ">",
+      "beginCaptures": { "0": { "name": "punctuation.definition.ffi.begin.mara" } },
+      "endCaptures":   { "0": { "name": "punctuation.definition.ffi.end.mara" } },
+      "patterns": [
+        {
+          "match": "\\*\\*\\*",
+          "name": "punctuation.separator.path.mara"
+        },
+        {
+          "match": "[A-Za-z_][A-Za-z0-9_]*",
+          "name": "entity.name.function.ffi.mara"
+        }
+      ]
+    },
+
+    "function-decl": {
+      "patterns": [
+        {
+          "name": "meta.function.public.mara",
+          "match": "\\b(rel)\\s+(op)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:",
+          "captures": {
+            "1": { "name": "keyword.declaration.rel.mara" },
+            "2": { "name": "keyword.modifier.public.mara" },
+            "3": { "name": "entity.name.function.mara" }
+          }
+        },
+        {
+          "name": "meta.function.private.mara",
+          "match": "\\b(rel)\\s+(cl)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:",
+          "captures": {
+            "1": { "name": "keyword.declaration.rel.mara" },
+            "2": { "name": "keyword.modifier.private.mara" },
+            "3": { "name": "entity.name.function.private.mara" }
+          }
+        }
+      ]
+    },
+
+    "type-annotation": {
+      "patterns": [
+        {
+          "name": "meta.type.compound.mara",
+          "match": "<\\[\\s*(string|i32|i64|u64|bool|ptr|array)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\*\\*\\*[^\\]]*)?\\]>t?",
+          "captures": {
+            "1": { "name": "storage.type.primitive.mara" },
+            "2": { "name": "entity.name.type.mara" }
+          }
+        },
+        {
+          "name": "meta.type.primitive.mara",
+          "match": "<(string|i32|i64|u64|bool|ptr|array)>",
+          "captures": {
+            "1": { "name": "storage.type.primitive.mara" }
+          }
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.mara",
+          "match": "\\b(if|else|loop|break|ret)\\b"
+        },
+        {
+          "name": "keyword.declaration.mara",
+          "match": "\\b(let|var)\\b"
+        },
+        {
+          "name": "keyword.other.mara",
+          "match": "\\b(log|self)\\b"
+        },
+        {
+          "name": "keyword.operator.new.mara",
+          "match": "\\b(rel|op|cl)\\b"
+        }
+      ]
+    },
+
+    "type-keywords": {
+      "name": "storage.type.primitive.mara",
+      "match": "\\b(string|i32|i64|u64|bool|ptr|array)\\b"
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.mara",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.mara",
+          "match": "\\b(null|nullptr)\\b"
+        }
+      ]
+    },
+
+    "string": {
+      "name": "string.quoted.double.mara",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.mara",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.mara",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.mara",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.mara",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.mara",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.bitwise.mara",
+          "match": "<<|>>|&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.arithmetic.mara",
+          "match": "\\+|-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.assignment.mara",
+          "match": "(?<![=!<>])=(?!=)"
+        }
+      ]
+    },
+
+    "path-separator": {
+      "name": "punctuation.separator.path.mara",
+      "match": "\\*\\*\\*"
+    }
+  }
+}

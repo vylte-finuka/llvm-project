@@ -185,7 +185,8 @@ void Sema::analyseVarDecl(VarDecl &D) {
   S.CompoundName = D.CompoundTypeName;
   S.IsConst     = D.IsConst;
 
-  if (!Ctx.define(S))
+  // '_' is the Mara discard variable — multiple bindings are allowed
+  if (D.Name != "_" && !Ctx.define(S))
     err(0, 0, "redefinition of '" + D.Name + "'");
 
   if (D.Initializer) {
@@ -272,16 +273,27 @@ MaraTypeKind Sema::analyseVarRef(VarRef &E) {
 }
 
 MaraTypeKind Sema::analyseFFICall(FFICallExpr &E) {
-  // FFI calls are resolved at link time — analyse args, return i32 (convention)
+  // FFI calls are resolved at link time — type is determined by the declaration
   for (auto &A : E.Args)
     analyseExpr(*A);
-  return MaraTypeKind::I32;
+  return MaraTypeKind::Unknown;
 }
 
 MaraTypeKind Sema::analyseCallExpr(CallExpr &E) {
   const SymbolEntry *S = Ctx.lookup(E.FunctionName);
   if (!S) {
-    err(0, 0, "call to undeclared function '" + E.FunctionName + "'");
+    // For path calls (self***method, Module***func), try the last segment
+    std::string shortName = E.FunctionName;
+    auto pos = shortName.rfind("***");
+    if (pos != std::string::npos) {
+      shortName = shortName.substr(pos + 3);
+      S = Ctx.lookup(shortName);
+    }
+  }
+  if (!S) {
+    // Calls to external or cross-module symbols are resolved at link time
+    if (E.FunctionName.find("***") == std::string::npos)
+      err(0, 0, "call to undeclared function '" + E.FunctionName + "'");
   } else if (S->IsFunction && S->ParamCount != E.Args.size()) {
     err(0, 0, "function '" + E.FunctionName + "' expects " +
         std::to_string(S->ParamCount) + " arguments, got " +
@@ -289,7 +301,7 @@ MaraTypeKind Sema::analyseCallExpr(CallExpr &E) {
   }
   for (auto &A : E.Args)
     analyseExpr(*A);
-  return MaraTypeKind::Unknown; // return type inference not yet implemented
+  return MaraTypeKind::Unknown;
 }
 
 MaraTypeKind Sema::analyseBinaryExpr(BinaryExpr &E) {

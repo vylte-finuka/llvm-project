@@ -24,7 +24,7 @@ public:
 
   Expected<std::unique_ptr<llvm::Module>> codegenModule(Module *M);
   Expected<llvm::Function *>              codegenFunction(FunctionDecl *F);
-  void optimize();
+  void optimize(llvm::Module &M);
   std::unique_ptr<llvm::Module> getModule() { return std::move(Mod); }
 
 private:
@@ -37,6 +37,19 @@ private:
 
   // Runtime
   llvm::Function *LogFunc = nullptr;
+
+  // Set to true when generating the body of a class-like rel that contains nested
+  // rel declarations — VarDecls become GlobalVariables instead of allocas so that
+  // nested functions can access them without cross-function alloca references.
+  bool ClassBodyScope = false;
+
+  // Nesting depth: 0 = top-level (called from codegenModule).
+  // Top-level functions keep ExternalLinkage even if declared rel cl,
+  // so the Slura OS runtime can reach entry points like @OEntry.
+  int FuncNestDepth = 0;
+
+  // Target block for `break` — set by codegenLoop to its exit BB.
+  llvm::BasicBlock *CurrentLoopExit = nullptr;
 
   void initRuntime();
 

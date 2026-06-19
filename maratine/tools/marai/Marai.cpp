@@ -19,7 +19,10 @@
 
 #include "MaraiABI.h"
 #include "MaraiAudit.h"
+#include "MaraiBuild.h"
+#include "MaraiCheck.h"
 #include "MaraiInstall.h"
+#include "MaraiLSP.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/WithColor.h"
@@ -34,6 +37,9 @@ using namespace marai;
 // Définition des options CLI
 //----------------------------------------------------------------------
 
+static cl::SubCommand LSPCmd     ("lsp",      "Demarrer le serveur LSP Maratine (stdio JSON-RPC)");
+static cl::SubCommand CheckCmd   ("check",    "Auditer les fichiers Mara d'un projet (IR + securite)");
+static cl::SubCommand BuildCmd   ("build",    "Compiler un ou plusieurs fichiers .mara");
 static cl::SubCommand InstallCmd ("install",  "Installer un ou plusieurs packages");
 static cl::SubCommand UpdateCmd  ("update",   "Mettre à jour tous les packages");
 static cl::SubCommand RemoveCmd  ("remove",   "Supprimer un package");
@@ -42,6 +48,37 @@ static cl::SubCommand AuditCmd   ("audit",    "Analyser les failles de sécurit�
 static cl::SubCommand PublishCmd ("publish",  "Publier un package sur le registry");
 static cl::SubCommand ABICmd     ("abi",      "Opérations ABI MABI 1.0.1");
 static cl::SubCommand VersionCmd ("version",  "Afficher la version de marai");
+
+// -- check
+static cl::list<std::string> CheckProjects(cl::Positional,
+  cl::desc("<projet.marep|projet.slul>..."), cl::sub(CheckCmd));
+static cl::opt<bool> CheckOptimize("O",
+  cl::desc("Activer O2 pour la verification du verifier LLVM"), cl::sub(CheckCmd));
+static cl::opt<bool> CheckVerbose("verbose",
+  cl::desc("Sortie detaillee"), cl::sub(CheckCmd));
+static cl::opt<bool> CheckShowIR("show-ir",
+  cl::desc("Afficher l'IR LLVM de chaque fichier"), cl::sub(CheckCmd));
+static cl::opt<bool> CheckJSON("json",
+  cl::desc("Sortie JSON"), cl::sub(CheckCmd));
+static cl::opt<std::string> CheckCompiler("compiler",
+  cl::desc("Chemin vers maratine-cc (auto-detecte par defaut)"),
+  cl::sub(CheckCmd));
+
+// -- build
+static cl::list<std::string> BuildSources(cl::Positional,
+  cl::desc("<projet.marep|projet.slul>..."), cl::sub(BuildCmd));
+static cl::opt<std::string> BuildOutput("o",
+  cl::desc("Chemin de sortie (.marpkg) — mode projet unique"), cl::sub(BuildCmd));
+static cl::opt<std::string> BuildOutDir("out-dir",
+  cl::desc("Répertoire de sortie (défaut : répertoire courant)"),
+  cl::sub(BuildCmd));
+static cl::opt<bool> BuildOptimize("O",
+  cl::desc("Activer les optimisations O2"), cl::sub(BuildCmd));
+static cl::opt<bool> BuildVerbose("verbose",
+  cl::desc("Sortie détaillée"), cl::sub(BuildCmd));
+static cl::opt<std::string> BuildCompiler("compiler",
+  cl::desc("Chemin vers maratine-cc (auto-détecté par défaut)"),
+  cl::sub(BuildCmd));
 
 // -- install
 static cl::list<std::string> InstallSpecs(cl::Positional,
@@ -111,6 +148,86 @@ static void printVersion(raw_ostream &OS) {
 //----------------------------------------------------------------------
 // Commandes
 //----------------------------------------------------------------------
+
+static int cmdCheck(raw_ostream &OS, const std::string &Argv0) {
+  if (CheckProjects.empty()) {
+    WithColor::error() << "marai check : aucun projet specifie.\n";
+    OS << "Usage: marai check <projet.marep|projet.slul>... [-O] [--json] [--show-ir]\n";
+    return 1;
+  }
+
+  CheckOptions Opts;
+  Opts.Optimize         = CheckOptimize;
+  Opts.Verbose          = CheckVerbose;
+  Opts.ShowIR           = CheckShowIR;
+  Opts.JSONOutput       = CheckJSON;
+  Opts.CompilerOverride = CheckCompiler;
+
+  if (!CheckJSON) {
+    WithColor(OS, raw_ostream::CYAN, true) << "marai check\n";
+    OS << "  Analyse statique + verification IR LLVM\n";
+    if (Opts.Optimize) OS << "  Mode : avec optimisation O2\n";
+    OS << "\n";
+  }
+
+  Checker checker(Opts, Argv0);
+  auto Results = checker.check(
+      std::vector<std::string>(CheckProjects.begin(), CheckProjects.end()));
+
+  bool hasError = false;
+  for (const auto &R : Results) {
+    if (Opts.JSONOutput)
+      R.printJSON(OS);
+    else
+      R.print(OS, true);
+    if (!R.ok()) hasError = true;
+  }
+
+  if (!CheckJSON) {
+    OS << "\n";
+    if (!hasError)
+      WithColor(OS, raw_ostream::GREEN, true) << "  Audit termine : aucun probleme detecte.\n";
+    else
+      WithColor(OS, raw_ostream::RED, true) << "  Audit termine : des problemes ont ete detectes.\n";
+    OS << "\n";
+  }
+
+  return hasError ? 1 : 0;
+}
+
+static int cmdBuild(raw_ostream &OS, const std::string &Argv0) {
+  if (BuildSources.empty()) {
+    WithColor::error() << "marai build : aucun projet spécifié.\n";
+    OS << "Usage: marai build <projet.marep|projet.slul>... [-O] [--out-dir <dir>]\n";
+    return 1;
+  }
+
+  BuildOptions Opts;
+  Opts.OutputFile       = BuildOutput;
+  Opts.OutputDir        = BuildOutDir;
+  Opts.Optimize         = BuildOptimize;
+  Opts.Verbose          = BuildVerbose;
+  Opts.CompilerOverride = BuildCompiler;
+
+  WithColor(OS, raw_ostream::CYAN, true) << "marai build\n\n";
+
+  Builder builder(Opts, Argv0);
+  auto Results = builder.build(
+      std::vector<std::string>(BuildSources.begin(), BuildSources.end()));
+
+  bool hasError = false;
+  for (const auto &R : Results) {
+    R.print(OS, true);
+    if (!R.Success) hasError = true;
+  }
+
+  if (!hasError)
+    WithColor(OS, raw_ostream::GREEN) << "\nBuild réussi.\n";
+  else
+    WithColor(OS, raw_ostream::RED) << "\nBuild échoué.\n";
+
+  return hasError ? 1 : 0;
+}
 
 static int cmdInstall(raw_ostream &OS) {
   if (InstallSpecs.empty()) {
@@ -240,6 +357,8 @@ static int cmdPublish(raw_ostream &OS) {
 int main(int argc, char **argv) {
   InitLLVM X(argc, argv);
 
+  std::string Argv0 = argc > 0 ? argv[0] : "";
+
   cl::SetVersionPrinter([](raw_ostream &OS) {
     OS << "marai v0.1 Naverta build 26160621 beta\n";
   });
@@ -252,6 +371,9 @@ int main(int argc, char **argv) {
 
   printHeader(OS);
 
+  if (LSPCmd)     return marai::runLSP(Argv0);
+  if (CheckCmd)   return cmdCheck(OS, Argv0);
+  if (BuildCmd)   return cmdBuild(OS, Argv0);
   if (InstallCmd) return cmdInstall(OS);
   if (AuditCmd)   return cmdAudit(OS);
   if (ABICmd)     return cmdABI(OS);
@@ -262,6 +384,9 @@ int main(int argc, char **argv) {
 
   OS << "Usage : marai <commande> [options]\n\n";
   OS << "Commandes :\n";
+  OS << "  lsp                            Serveur LSP (VSCode / stdio JSON-RPC)\n";
+  OS << "  check    <projet.marep|.slul>  Auditer : IR, securite, entry-points\n";
+  OS << "  build    <projet.marep|.slul>  Compiler et packager un projet\n";
   OS << "  install  <pkg[@ver]>...    Installer des packages\n";
   OS << "  update                     Mettre à jour tous les packages\n";
   OS << "  remove   <pkg>             Supprimer un package\n";
@@ -271,6 +396,10 @@ int main(int argc, char **argv) {
   OS << "  abi      check <pkg>       Vérifier la compatibilité MABI 1.0.1\n";
   OS << "  version                    Afficher la version\n\n";
   OS << "Exemples :\n";
+  OS << "  marai check MaratineProjectAppTemplate.marep\n";
+  OS << "  marai check MaratineProjectAppTemplate.marep -O --json\n";
+  OS << "  marai check MaratineProjectAppTemplate.slul --show-ir\n";
+  OS << "  marai build MaratineProjectAppTemplate.marep -O\n";
   OS << "  marai install MGCPhysics@2.1.0\n";
   OS << "  marai install --force MaraNet@1.9.0\n";
   OS << "  marai audit\n";

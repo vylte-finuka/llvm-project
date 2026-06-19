@@ -12,6 +12,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/Target/TargetMachine.h"
@@ -114,7 +115,15 @@ int main(int argc, char **argv) {
   // --- 5. Optimization ---
   if (Optimize) {
     errs() << "[5/5] Optimization (O2)...\n";
-    CG.optimize();
+    std::string VerifyMsg;
+    raw_string_ostream VOS(VerifyMsg);
+    if (llvm::verifyModule(*LLVMMod, &VOS)) {
+      errs() << "IR verification failed:\n" << VOS.str() << "\n";
+      errs() << "=== Generated IR ===\n";
+      LLVMMod->print(errs(), nullptr);
+      return 1;
+    }
+    CG.optimize(*LLVMMod);
   } else {
     errs() << "[5/5] Skipping optimization (pass -O to enable)\n";
   }

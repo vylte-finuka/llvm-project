@@ -53,22 +53,42 @@ let nomConst: <i32> = 42;          // constante
 ### Fonctions
 
 ```mara
-// rel cl = privé (InternalLinkage)
+// rel cl = closed = prive
 rel cl nomFonction: [arg1 string, arg2 i32] [
     ret arg2;
 ];
 
-// rel op = public (ExternalLinkage)
+// rel op = open = public
 rel op nomFonction: [arg1 string] [
     ret arg1;
 ];
 
-// Héritage
+// Heritage de type
 rel op NomClasse: <[string TypeParent]>t [
 ];
 ```
 
 > Les arguments de `rel` sont toujours sans `< >` : `[name string]`
+
+### Visibilite rel cl / rel op
+
+| Qui appelle | `rel cl` | `rel op` |
+| --- | --- | --- |
+| Meme fichier `.mara` | oui | oui |
+| Autre fichier du meme bundle | non | oui |
+| Autre bundle `.marep` / `.slul` | non | oui |
+| Runtime Slura OS (entry points) | oui | oui |
+
+> `rel cl` au **niveau module** (ex. `OEntry`, `APrevent`) recoit `ExternalLinkage` LLVM
+> meme si declare prive, afin que le runtime Slura OS puisse l'atteindre.
+> `rel cl` **imbrique** dans une classe reste `InternalLinkage` (veritablement prive).
+
+### Litteraux hexadecimaux
+
+```mara
+let color: <i32> = 0xFFFFFF;
+let mask:  <i32> = 0xFF00FF;
+```
 
 ### Conditionnelles et boucles
 
@@ -268,17 +288,22 @@ maratinec/
 
 ```text
 Source .mara
-    ↓
-[1/4] MaratineLexer     → tokens
-    ↓
-[2/4] MaratineParser    → AST
-    ↓
-[3/4] MaratineSema      → analyse sémantique (types, portées, arité)
-    ↓
-[4/4] MaratineCodeGen   → LLVM IR → objet ARM64
-    ↓
-Bundle .marep / .slul
+    |
+[1/5] MaratineLexer    -> tokens
+    |
+[2/5] MaratineParser   -> AST
+    |
+[3/5] MaratineSema     -> analyse semantique (types, portees, arite)
+    |
+[4/5] MaratineCodeGen  -> LLVM IR  (fonctions top-level : ExternalLinkage)
+    |
+[5/5] Optimizer O2     -> LLVM IR optimise (.ovc interne)
+    |
+marai build            -> bundle .marep / .slul (archive ZIP)
 ```
+
+> Les fonctions `rel cl` au niveau module recoivent `ExternalLinkage` pour survivre
+> au dead-code elimination de l'optimiseur O2 (entry points atteints par Slura OS).
 
 ---
 
@@ -301,36 +326,73 @@ et en **desktop 1080p** (dock HDMI) — MGC détecte le mode automatiquement.
 
 ## Build
 
-### Dépendances
+### Dependances
 
 - CMake 3.20+
 - C++17
 - LLVM (ce fork — branche `main`)
 
-### Compiler le compilateur Mara
+### Compiler la toolchain Maratine
 
 ```bash
-cmake -S llvm -B build -G Ninja \
-  -DLLVM_ENABLE_PROJECTS="maratine" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_TARGETS_TO_BUILD=AArch64
-cmake --build build --target maratine-cc
+# Windows (PowerShell)
+cmake -S maratine -B maratine/build -G Ninja
+cmake --build maratine/build --target maratine-cc marai
+
+# Linux / macOS
+cmake -S maratine -B maratine/build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build maratine/build --target maratine-cc marai
 ```
 
-### Compiler un fichier `.mara`
+### Construire un projet Mara — `marai build`
+
+La commande principale est **`marai build`**. Elle lit `Maraset.yaml`, compile tous les
+`.mara` de `base/`, collecte les assets (icones, XML, `.slasset`) et produit le bundle final.
 
 ```bash
-# Vers LLVM IR
-./build/bin/maratine-cc MonApp.mara -emit llvm -o MonApp.ll
+# Application .marep
+marai build MonApp.marep -O --out-dir dist/
+# Produit : dist/HelloWorld.marep
 
-# Vers objet ARM64
-./build/bin/maratine-cc MonApp.mara -emit obj -o MonApp.o
+# Driver .slul
+marai build MonDriver.slul -O --out-dir dist/
+# Produit : dist/SlulDriver.slul
+```
 
-# Dump tokens
-./build/bin/maratine-cc MonApp.mara -dump-tokens
+> Le format de sortie est **toujours** `.marep` ou `.slul` — jamais `.ovc` ni `.marpkg`.
+> Les `.ovc` sont des intermediaires internes empaquetes dans le bundle, invisibles
+> pour l'utilisateur.
 
-# Dump AST
-./build/bin/maratine-cc MonApp.mara -dump-ast
+### Script de build complet
+
+```powershell
+# Windows
+.\build-helloworld-pkg.ps1 -Optimize
+```
+
+### Diagnostics maratine-cc (bas niveau)
+
+```bash
+# Inspecter les tokens
+maratine-cc MonFichier.mara -dump-tokens
+
+# Inspecter l'AST
+maratine-cc MonFichier.mara -dump-ast
+
+# Emettre le LLVM IR brut
+maratine-cc MonFichier.mara -emit llvm -o MonFichier.ll
+```
+
+### marai — Gestionnaire de packages Mara
+
+```text
+marai build   <projet.marep|projet.slul> [-O] [--out-dir dir]
+marai install <pkg[@ver]>...
+marai audit   [--aude] [--json]
+marai abi     check <pkg>
+marai list    [--deps]
+marai version
 ```
 
 ---
