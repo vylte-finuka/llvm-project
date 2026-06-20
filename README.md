@@ -324,75 +324,134 @@ et en **desktop 1080p** (dock HDMI) — MGC détecte le mode automatiquement.
 
 ---
 
-## Build
+## Installation de la toolchain
 
-### Dependances
-
-- CMake 3.20+
-- C++17
-- LLVM (ce fork — branche `main`)
-
-### Compiler la toolchain Maratine
-
-```bash
-# Windows (PowerShell)
-cmake -S maratine -B maratine/build -G Ninja
-cmake --build maratine/build --target maratine-cc marai
-
-# Linux / macOS
-cmake -S maratine -B maratine/build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build maratine/build --target maratine-cc marai
-```
-
-### Construire un projet Mara — `marai build`
-
-La commande principale est **`marai build`**. Elle lit `Maraset.yaml`, compile tous les
-`.mara` de `base/`, collecte les assets (icones, XML, `.slasset`) et produit le bundle final.
-
-```bash
-# Application .marep
-marai build MonApp.marep -O --out-dir dist/
-# Produit : dist/HelloWorld.marep
-
-# Driver .slul
-marai build MonDriver.slul -O --out-dir dist/
-# Produit : dist/SlulDriver.slul
-```
-
-> Le format de sortie est **toujours** `.marep` ou `.slul` — jamais `.ovc` ni `.marpkg`.
-> Les `.ovc` sont des intermediaires internes empaquetes dans le bundle, invisibles
-> pour l'utilisateur.
-
-### Script de build complet
+### Methode recommandee — `build-llvm-win.ps1`
 
 ```powershell
-# Windows
-.\build-helloworld-pkg.ps1 -Optimize
+# Windows — build + install + variables d'environnement
+.\build-llvm-win.ps1
+
+# Options
+.\build-llvm-win.ps1 -Prefix D:\mara   # repertoire d'installation
+.\build-llvm-win.ps1 -Jobs 8            # parallelisme
+.\build-llvm-win.ps1 -Clean             # nettoyage avant build
 ```
 
-### Diagnostics maratine-cc (bas niveau)
+Apres installation dans `D:\maratine-install\` :
+
+| Fichier | Role |
+| --- | --- |
+| `bin\maratine-cc.exe` | Compilateur Mara -> LLVM IR |
+| `bin\marai.exe` | Outil principal (build, new, check, lsp, audit...) |
+| `bin\marabug.exe` | Debogueur |
+| `lib\maratine\base\` | Stdlib (44+ fichiers `.mara`) |
+| `lib\maratine\templates\` | Templates projet `.marep` / `.slul` |
+| `include\maratine\` | Headers C++ |
+
+Variables d'environnement positionnes automatiquement :
+- `MARATINE_HOME`, `MARATINE_STDLIB`, `MARATINE_TEMPLATES`, `PATH`
+
+---
+
+## marai — Outil principal
+
+### Creer un projet
 
 ```bash
-# Inspecter les tokens
-maratine-cc MonFichier.mara -dump-tokens
-
-# Inspecter l'AST
-maratine-cc MonFichier.mara -dump-ast
-
-# Emettre le LLVM IR brut
-maratine-cc MonFichier.mara -emit llvm -o MonFichier.ll
+marai new MonApp.marep                  # application .marep depuis template
+marai new MonDriver.slul                # driver .slul depuis template
+marai new MonApp.marep --dir D:\Projets # dans un dossier specifique
+marai new MonApp.marep --force          # ecraser si existant
 ```
 
-### marai — Gestionnaire de packages Mara
+Structure generee pour `MonApp.marep` :
+```
+MonApp.marep/
+  base/
+    OEntry.mara        <- point d'entree (rel cl)
+    LAPrevent.mara     <- cycle de vie (rel op)
+    HelloWorld.mara    <- composant exemple
+    TemplateView.mara  <- vue principale
+  MonApp.slasset/
+    ResLayout.xml
+    Slura_launcher icon.png
+  Maraset.yaml         <- name: base***MonApp
+  RAbstractallowing.xml
+```
+
+### Construire un projet
+
+`marai build` lit `Maraset.yaml`, compile tous les `.mara` de `base/`,
+copie les assets et produit le bundle final `.marep` ou `.slul`.
+
+```bash
+# Depuis le dossier du projet (auto-detection)
+cd MonApp.marep  &&  marai build -O
+
+# Depuis le dossier parent (detecte tous les .marep et .slul)
+marai build -O
+
+# Chemin explicite
+marai build MonApp.marep -O --out-dir dist/
+
+# Choix de l'architecture (arm64 = defaut Slura OS, x64 = dev/test)
+marai build MonApp.marep -O --arch arm64
+marai build MonApp.marep -O --arch x64
+```
+
+> Le format de sortie est **toujours** `.marep` ou `.slul`.
+> Les `.ovc` sont des intermediaires internes empaquetes dans le bundle — jamais visibles.
+
+Architecture cible :
+
+| Valeur | Triple LLVM | Usage |
+| --- | --- | --- |
+| `arm64` *(defaut)* | `aarch64-unknown-none-elf` | Slura OS / Exynos W1000 (production) |
+| `x64` | `x86_64-pc-windows-msvc` | Dev / tests sur PC Windows |
+
+### Auditer un projet
+
+```bash
+marai check MonApp.marep -O        # verifie IR + entry-points + securite
+marai check MonApp.marep -O --json # sortie JSON (CI)
+marai check MonApp.marep --show-ir # affiche le LLVM IR de chaque fichier
+```
+
+### Serveur LSP (VSCode)
+
+```bash
+marai lsp   # demarre le serveur LSP sur stdin/stdout (JSON-RPC)
+```
+
+L'extension VSCode `maratine-language` lance automatiquement `marai lsp`.
+Fonctionnalites : coloration syntaxique, diagnostics, completion hierarchique,
+signature help, hover avec type et module d'origine, inlay hints.
+
+### Autres commandes
 
 ```text
-marai build   <projet.marep|projet.slul> [-O] [--out-dir dir]
-marai install <pkg[@ver]>...
-marai audit   [--aude] [--json]
-marai abi     check <pkg>
-marai list    [--deps]
-marai version
+marai new      <NomProjet[.marep|.slul]>    Creer un projet depuis template
+marai build    [projet...]  [-O] [--arch]   Compiler et packager
+marai check    [projet...]  [-O] [--json]   Audit IR + securite
+marai lsp                                    Serveur LSP (VSCode)
+marai install  <pkg[@ver]>...               Installer des packages
+marai update                                 Mettre a jour les packages
+marai remove   <pkg>                         Supprimer un package
+marai list     [--deps]                      Lister les packages
+marai audit    [--aude] [--json]             Audit securite (Maralock.yaml)
+marai abi      check <pkg>                   Verifier compatibilite MABI
+marai version                                Afficher la version
+```
+
+### Diagnostics bas niveau (`maratine-cc`)
+
+```bash
+maratine-cc MonFichier.mara -dump-tokens          # tokens du lexer
+maratine-cc MonFichier.mara -dump-ast             # AST complet
+maratine-cc MonFichier.mara -emit llvm -o out.ll  # LLVM IR brut
+maratine-cc MonFichier.mara -emit llvm -O         # LLVM IR optimise O2
+maratine-cc MonFichier.mara -arch x64 -emit llvm  # cibler x64
 ```
 
 ---

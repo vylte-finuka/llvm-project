@@ -10,10 +10,24 @@
 using namespace llvm;
 using namespace llvm::maratine;
 
-CodeGenerator::CodeGenerator(StringRef ModuleName)
+CodeGenerator::CodeGenerator(StringRef ModuleName, StringRef Arch)
     : Ctx(std::make_unique<LLVMContext>()),
       Mod(std::make_unique<llvm::Module>(ModuleName, *Ctx)),
       Builder(std::make_unique<IRBuilder<>>(*Ctx)) {
+
+  // Triple et DataLayout selon l'architecture cible
+  if (Arch == "x64") {
+    Mod->setTargetTriple(llvm::Triple("x86_64-pc-windows-msvc"));
+    Mod->setDataLayout(
+        "e-m:w-p270:32:32-p271:32:32-p272:64:64"
+        "-i64:64-i128:128-f80:128-n8:16:32:64-S128");
+  } else {
+    // arm64 — Slura OS / Exynos W1000 (Cortex-A78/A55)
+    Mod->setTargetTriple(llvm::Triple("aarch64-unknown-none-elf"));
+    Mod->setDataLayout(
+        "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128");
+  }
+
   initRuntime();
 }
 

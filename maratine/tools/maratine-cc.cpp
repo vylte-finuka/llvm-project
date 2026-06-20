@@ -49,6 +49,12 @@ static cl::opt<bool> Optimize(
     "O",
     cl::desc("Enable O2 optimizations"));
 
+static cl::opt<std::string> Arch(
+    "arch",
+    cl::init("arm64"),
+    cl::desc("Target architecture: arm64 (default, Slura OS / Exynos W1000) or x64"),
+    cl::value_desc("arch"));
+
 int main(int argc, char **argv) {
   cl::SetVersionPrinter([](raw_ostream &OS) {
     OS << "maratine-cc v0.1 Naverta build 26160621 beta\n";
@@ -102,9 +108,19 @@ int main(int argc, char **argv) {
   if (!S.diagnostics().empty())
     S.printDiagnostics(errs());
 
+  // Valider l'architecture
+  std::string ArchNorm = Arch;
+  if (ArchNorm == "aarch64" || ArchNorm == "arm64") ArchNorm = "arm64";
+  else if (ArchNorm == "x86_64" || ArchNorm == "amd64" || ArchNorm == "x64") ArchNorm = "x64";
+  else {
+    errs() << "Architecture non supportee : " << ArchNorm
+           << "  (valeurs valides : arm64, x64)\n";
+    return 1;
+  }
+
   // --- 4. Code generation ---
-  errs() << "[4/5] Code generation (ARM64)...\n";
-  CodeGenerator CG("maratine_module");
+  errs() << "[4/5] Code generation (" << (ArchNorm == "arm64" ? "ARM64" : "X64") << ")...\n";
+  CodeGenerator CG("maratine_module", ArchNorm);
   auto LLVMModOrErr = CG.codegenModule(Mod.get());
   if (!LLVMModOrErr) {
     errs() << "Codegen error: " << toString(LLVMModOrErr.takeError()) << "\n";

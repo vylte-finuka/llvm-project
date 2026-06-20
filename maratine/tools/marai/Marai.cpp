@@ -88,6 +88,9 @@ static cl::opt<bool> BuildOptimize("O",
   cl::desc("Activer les optimisations O2"), cl::sub(BuildCmd));
 static cl::opt<bool> BuildVerbose("verbose",
   cl::desc("Sortie détaillée"), cl::sub(BuildCmd));
+static cl::opt<std::string> BuildArch("arch",
+  cl::desc("Architecture cible : arm64 (defaut, Slura OS) | x64 (dev/test)"),
+  cl::sub(BuildCmd));
 static cl::opt<std::string> BuildCompiler("compiler",
   cl::desc("Chemin vers maratine-cc (auto-détecté par défaut)"),
   cl::sub(BuildCmd));
@@ -260,6 +263,7 @@ static int cmdBuild(raw_ostream &OS, const std::string &Argv0) {
   Opts.Optimize         = BuildOptimize;
   Opts.Verbose          = BuildVerbose;
   Opts.CompilerOverride = BuildCompiler;
+  Opts.Arch             = BuildArch;
 
   WithColor(OS, raw_ostream::CYAN, true) << "marai build\n\n";
 

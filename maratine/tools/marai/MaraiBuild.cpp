@@ -111,8 +111,18 @@ ManifestInfo Builder::readManifest(const std::string &ProjectDir) const {
     } else if (Section == "metadata") {
       if (Line.starts_with("bundle:"))
         Info.BundleType = trim(Line.substr(7)).str();
+      if (Line.starts_with("target:"))
+        Info.Target = trim(Line.substr(7)).str();
     }
   }
+
+  // Normaliser la valeur de target
+  if (Info.Target == "aarch64" || Info.Target == "arm64")
+    Info.Target = "arm64";
+  else if (Info.Target == "x86_64" || Info.Target == "amd64" || Info.Target == "x64")
+    Info.Target = "x64";
+  else
+    Info.Target = "arm64"; // defaut Slura OS
 
   Info.Valid = !Info.ShortName.empty() && !Info.BundleType.empty();
   return Info;
@@ -125,7 +135,8 @@ ManifestInfo Builder::readManifest(const std::string &ProjectDir) const {
 bool Builder::compileBase(const std::string &SrcBase,
                           const std::string &DstBase,
                           const std::string &Compiler,
-                          std::string &ErrMsg) {
+                          std::string &ErrMsg,
+                          const std::string &Arch) {
   std::error_code EC = sys::fs::create_directories(DstBase);
   if (EC) { ErrMsg = "Impossible de créer base/ : " + EC.message(); return false; }
 
@@ -156,6 +167,11 @@ bool Builder::compileBase(const std::string &SrcBase,
     Args.push_back("-o");
     Args.push_back(OutPath.str());
     if (Opts.Optimize) Args.push_back("-O");
+    // Architecture cible
+    std::string ArchArg = "-arch";
+    std::string ArchVal = Arch.empty() ? "arm64" : Arch;
+    Args.push_back(ArchArg);
+    Args.push_back(ArchVal);
 
     std::string CompErr;
     int ExitCode = sys::ExecuteAndWait(Compiler, Args,
@@ -339,11 +355,18 @@ BuildResult Builder::buildProject(const std::string &ProjectDir,
   SmallString<256> DstBase(BundleDir);
   sys::path::append(DstBase, "base");
 
+  // Architecture : priorité à l'option CLI, sinon Maraset.yaml, sinon arm64
+  std::string EffectiveArch = Opts.Arch.empty() ? Info.Target : Opts.Arch;
+  if (EffectiveArch.empty()) EffectiveArch = "arm64";
+
   if (Opts.Verbose)
-    outs() << "  Compilation de " << sys::path::filename(ProjectDir) << "...\n";
+    outs() << "  Compilation de " << sys::path::filename(ProjectDir)
+           << "  [" << EffectiveArch << "]\n";
+  else
+    outs() << "  Architecture : " << EffectiveArch << "\n";
 
   std::string Err;
-  if (!compileBase(SrcBase.str().str(), DstBase.str().str(), Compiler, Err)) {
+  if (!compileBase(SrcBase.str().str(), DstBase.str().str(), Compiler, Err, EffectiveArch)) {
     R.ErrorMsg = Err;
     sys::fs::remove_directories(TmpDir);
     return R;

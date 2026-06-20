@@ -16,6 +16,7 @@ struct ManifestInfo {
   std::string ShortName;    // e.g. "HelloWorld"
   std::string Version;
   std::string BundleType;   // "marep" or "slul"
+  std::string Target;       // "arm64" (defaut) ou "x64"
   bool        Valid = false;
 };
 
@@ -25,6 +26,7 @@ struct BuildOptions {
   bool        Optimize  = false; // -O
   bool        Verbose   = false; // --verbose
   std::string CompilerOverride;  // --compiler
+  std::string Arch;              // --arch arm64|x64 (vide = lire Maraset.yaml, defaut arm64)
 };
 
 struct BuildResult {
@@ -59,7 +61,8 @@ private:
   bool compileBase(const std::string &SrcBase,
                    const std::string &DstBase,
                    const std::string &Compiler,
-                   std::string &ErrMsg);
+                   std::string &ErrMsg,
+                   const std::string &Arch = "arm64");
 
   bool copyAssets(const std::string &ProjectDir,
                   const std::string &BundleDir,

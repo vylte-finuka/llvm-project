@@ -20,7 +20,9 @@ namespace maratine {
 
 class CodeGenerator {
 public:
-  explicit CodeGenerator(StringRef ModuleName);
+  // arch : "arm64" (defaut, Slura OS / Exynos W1000) ou "x64" (dev/test)
+  explicit CodeGenerator(StringRef ModuleName,
+                         StringRef Arch = "arm64");
 
   Expected<std::unique_ptr<llvm::Module>> codegenModule(Module *M);
   Expected<llvm::Function *>              codegenFunction(FunctionDecl *F);
