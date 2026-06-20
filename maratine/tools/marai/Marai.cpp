@@ -23,6 +23,7 @@
 #include "MaraiCheck.h"
 #include "MaraiInstall.h"
 #include "MaraiLSP.h"
+#include "MaraiNew.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/WithColor.h"
@@ -37,6 +38,7 @@ using namespace marai;
 // Définition des options CLI
 //----------------------------------------------------------------------
 
+static cl::SubCommand NewCmd     ("new",      "Creer un nouveau projet .marep ou .slul depuis un template");
 static cl::SubCommand LSPCmd     ("lsp",      "Demarrer le serveur LSP Maratine (stdio JSON-RPC)");
 static cl::SubCommand CheckCmd   ("check",    "Auditer les fichiers Mara d'un projet (IR + securite)");
 static cl::SubCommand BuildCmd   ("build",    "Compiler un ou plusieurs fichiers .mara");
@@ -64,9 +66,19 @@ static cl::opt<std::string> CheckCompiler("compiler",
   cl::desc("Chemin vers maratine-cc (auto-detecte par defaut)"),
   cl::sub(CheckCmd));
 
+// -- new
+static cl::opt<std::string> NewProjectSpec(cl::Positional,
+  cl::desc("<NomProjet[.marep|.slul]>"), cl::sub(NewCmd));
+static cl::opt<std::string> NewDir("dir",
+  cl::desc("Repertoire de creation (defaut : dossier courant)"),
+  cl::sub(NewCmd));
+static cl::opt<bool> NewForce("force",
+  cl::desc("Ecraser si le dossier existe deja"), cl::sub(NewCmd));
+
 // -- build
 static cl::list<std::string> BuildSources(cl::Positional,
-  cl::desc("<projet.marep|projet.slul>..."), cl::sub(BuildCmd));
+  cl::desc("[projet.marep|projet.slul]...  (auto-detecte si absent)"),
+  cl::sub(BuildCmd));
 static cl::opt<std::string> BuildOutput("o",
   cl::desc("Chemin de sortie (.marpkg) — mode projet unique"), cl::sub(BuildCmd));
 static cl::opt<std::string> BuildOutDir("out-dir",
@@ -195,12 +207,52 @@ static int cmdCheck(raw_ostream &OS, const std::string &Argv0) {
   return hasError ? 1 : 0;
 }
 
-static int cmdBuild(raw_ostream &OS, const std::string &Argv0) {
-  if (BuildSources.empty()) {
-    WithColor::error() << "marai build : aucun projet spécifié.\n";
-    OS << "Usage: marai build <projet.marep|projet.slul>... [-O] [--out-dir <dir>]\n";
+static int cmdNew(raw_ostream &OS, const std::string &Argv0) {
+  if (NewProjectSpec.empty()) {
+    WithColor::error() << "marai new : nom de projet requis.\n";
+    OS << "Usage: marai new <NomProjet[.marep|.slul]> [--dir <chemin>] [--force]\n\n";
+    OS << "Exemples :\n";
+    OS << "  marai new MonApp.marep\n";
+    OS << "  marai new MonDriver.slul\n";
+    OS << "  marai new MonApp.marep --dir D:\\Projets\n";
     return 1;
   }
+
+  NewOptions Opts;
+  Opts.OutputDir = NewDir;
+  Opts.Force     = NewForce;
+
+  WithColor(OS, raw_ostream::CYAN, true) << "marai new\n\n";
+
+  auto R = marai::createProject(NewProjectSpec, Opts, Argv0);
+  R.print(OS, true);
+
+  if (R.Success) {
+    OS << "\n";
+    WithColor(OS, raw_ostream::GREEN) << "  Projet cree avec succes.\n\n";
+    OS << "  Prochaines etapes :\n";
+    OS << "    cd " << R.ProjectPath << "\n";
+    OS << "    marai build -O\n\n";
+    OS << "  Fichiers generes :\n";
+    OS << "    base/OEntry.mara      <- point d'entree\n";
+    if (R.BundleType == "marep") {
+      OS << "    base/LAPrevent.mara   <- cycle de vie\n";
+      OS << "    base/HelloWorld.mara  <- composant exemple\n";
+      OS << "    Maraset.yaml          <- manifeste du bundle\n";
+      OS << "    RAbstractallowing.xml <- permissions\n";
+      OS << "    *.slasset/            <- icone et layouts\n";
+    } else {
+      OS << "    base/APrevent.mara    <- cycle de vie driver\n";
+      OS << "    Maraset.yaml          <- manifeste du driver\n";
+      OS << "    RAbstractallowing.xml <- permissions\n";
+    }
+    return 0;
+  }
+  return 1;
+}
+
+static int cmdBuild(raw_ostream &OS, const std::string &Argv0) {
+  // BuildSources peut etre vide — auto-detection depuis le dossier courant
 
   BuildOptions Opts;
   Opts.OutputFile       = BuildOutput;
@@ -371,6 +423,7 @@ int main(int argc, char **argv) {
 
   printHeader(OS);
 
+  if (NewCmd)     return cmdNew(OS, Argv0);
   if (LSPCmd)     return marai::runLSP(Argv0);
   if (CheckCmd)   return cmdCheck(OS, Argv0);
   if (BuildCmd)   return cmdBuild(OS, Argv0);
@@ -384,9 +437,10 @@ int main(int argc, char **argv) {
 
   OS << "Usage : marai <commande> [options]\n\n";
   OS << "Commandes :\n";
+  OS << "  new      <NomProjet[.marep|.slul]>  Creer un nouveau projet depuis template\n";
   OS << "  lsp                            Serveur LSP (VSCode / stdio JSON-RPC)\n";
   OS << "  check    <projet.marep|.slul>  Auditer : IR, securite, entry-points\n";
-  OS << "  build    <projet.marep|.slul>  Compiler et packager un projet\n";
+  OS << "  build    [projet.marep|.slul]  Compiler et packager (auto-detecte si absent)\n";
   OS << "  install  <pkg[@ver]>...    Installer des packages\n";
   OS << "  update                     Mettre à jour tous les packages\n";
   OS << "  remove   <pkg>             Supprimer un package\n";
@@ -396,10 +450,13 @@ int main(int argc, char **argv) {
   OS << "  abi      check <pkg>       Vérifier la compatibilité MABI 1.0.1\n";
   OS << "  version                    Afficher la version\n\n";
   OS << "Exemples :\n";
+  OS << "  marai new   MonApp.marep\n";
+  OS << "  marai new   MonDriver.slul --dir D:\\Projets\n";
   OS << "  marai check MaratineProjectAppTemplate.marep\n";
   OS << "  marai check MaratineProjectAppTemplate.marep -O --json\n";
   OS << "  marai check MaratineProjectAppTemplate.slul --show-ir\n";
-  OS << "  marai build MaratineProjectAppTemplate.marep -O\n";
+  OS << "  marai build                          (depuis le dossier du projet)\n";
+  OS << "  marai build MonApp.marep -O\n";
   OS << "  marai install MGCPhysics@2.1.0\n";
   OS << "  marai install --force MaraNet@1.9.0\n";
   OS << "  marai audit\n";

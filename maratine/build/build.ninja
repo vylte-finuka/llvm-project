@@ -339,6 +339,16 @@ build tools\marai\CMakeFiles\marai.dir\MaraiLSP.cpp.obj: CXX_COMPILER__marai_uns
   TARGET_COMPILE_PDB = tools\marai\CMakeFiles\marai.dir\
   TARGET_PDB = tools\marai\marai.pdb
 
+build tools\marai\CMakeFiles\marai.dir\MaraiNew.cpp.obj: CXX_COMPILER__marai_unscanned_Release D$:\Downloads\Vyft_product\Maratinelang\maratinec\maratine\tools\marai\MaraiNew.cpp || cmake_object_order_depends_target_marai
+  CONFIG = Release
+  DEFINES = -DUNICODE -D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_NONSTDC_NO_WARNINGS -D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS -D_UNICODE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS
+  FLAGS = /I"D:/VisualS/VC/Tools/MSVC/14.51.36231/include" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/ucrt" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared" /I"D:/VisualS/VC/Tools/Llvm/x64/lib/clang/20/include" /D_WIN64 /D_AMD64_ /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /EHsc /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++17 -MD /W3 -Wno-deprecated-declarations -Wno-unknown-pragmas
+  INCLUDES = -ID:\llvm-install\include -ID:\Downloads\Vyft_product\Maratinelang\maratinec\maratine\include -ID:\Downloads\Vyft_product\Maratinelang\maratinec\maratine\tools\marai
+  OBJECT_DIR = tools\marai\CMakeFiles\marai.dir
+  OBJECT_FILE_DIR = tools\marai\CMakeFiles\marai.dir
+  TARGET_COMPILE_PDB = tools\marai\CMakeFiles\marai.dir\
+  TARGET_PDB = tools\marai\marai.pdb
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target marai
@@ -347,7 +357,7 @@ build tools\marai\CMakeFiles\marai.dir\MaraiLSP.cpp.obj: CXX_COMPILER__marai_uns
 #############################################
 # Link the executable tools\marai\marai.exe
 
-build tools\marai\marai.exe: CXX_EXECUTABLE_LINKER__marai_Release tools\marai\CMakeFiles\marai.dir\Marai.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiABI.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiAudit.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiBuild.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiCheck.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiInstall.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiLSP.cpp.obj | D$:\llvm-install\lib\LLVMCore.lib D$:\llvm-install\lib\LLVMSupport.lib D$:\llvm-install\lib\LLVMDemangle.lib D$:\llvm-install\lib\LLVMBinaryFormat.lib D$:\llvm-install\lib\LLVMRemarks.lib D$:\llvm-install\lib\LLVMBitstreamReader.lib D$:\llvm-install\lib\LLVMTargetParser.lib D$:\llvm-install\lib\LLVMSupport.lib D$:\llvm-install\lib\LLVMDemangle.lib
+build tools\marai\marai.exe: CXX_EXECUTABLE_LINKER__marai_Release tools\marai\CMakeFiles\marai.dir\Marai.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiABI.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiAudit.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiBuild.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiCheck.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiInstall.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiLSP.cpp.obj tools\marai\CMakeFiles\marai.dir\MaraiNew.cpp.obj | D$:\llvm-install\lib\LLVMCore.lib D$:\llvm-install\lib\LLVMSupport.lib D$:\llvm-install\lib\LLVMDemangle.lib D$:\llvm-install\lib\LLVMBinaryFormat.lib D$:\llvm-install\lib\LLVMRemarks.lib D$:\llvm-install\lib\LLVMBitstreamReader.lib D$:\llvm-install\lib\LLVMTargetParser.lib D$:\llvm-install\lib\LLVMSupport.lib D$:\llvm-install\lib\LLVMDemangle.lib
   CONFIG = Release
   FLAGS = /I"D:/VisualS/VC/Tools/MSVC/14.51.36231/include" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/ucrt" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/um" /I"C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared" /I"D:/VisualS/VC/Tools/Llvm/x64/lib/clang/20/include" /D_WIN64 /D_AMD64_ /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS /EHsc /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -MD
   LINK_FLAGS = /LIBPATH:"D:/VisualS/VC/Tools/MSVC/14.51.36231/lib/x64" /LIBPATH:"C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64" /LIBPATH:"C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64" /machine:x64 /machine:x64 /INCREMENTAL:NO /subsystem:console

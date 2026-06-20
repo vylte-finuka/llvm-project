@@ -6,6 +6,7 @@ set(MARAI_SOURCES
   MaraiCheck.cpp
   MaraiInstall.cpp
   MaraiLSP.cpp
+  MaraiNew.cpp
 )
 
 add_executable(marai ${MARAI_SOURCES})

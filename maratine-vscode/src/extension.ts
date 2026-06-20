@@ -156,6 +156,12 @@ function startLSP(context: vscode.ExtensionContext) {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher('**/*.mara'),
     },
+    // Envoyer le texte complet lors de didSave pour alimenter le cache LSP
+    middleware: {
+      didSave: (document, next) => {
+        return next(document);
+      },
+    },
     traceOutputChannel: vscode.window.createOutputChannel('Maratine LSP Trace'),
     outputChannelName: 'Maratine Language Server',
     initializationOptions: {

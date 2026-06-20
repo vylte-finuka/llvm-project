@@ -374,12 +374,79 @@ BuildResult Builder::buildProject(const std::string &ProjectDir,
 }
 
 // ---------------------------------------------------------------------------
+// Auto-detection du projet depuis le repertoire courant
+// Remonte l'arborescence jusqu'a trouver Maraset.yaml (comme cargo build)
+// OU scanne le dossier courant pour des sous-dossiers .marep / .slul
+// ---------------------------------------------------------------------------
+
+static std::vector<std::string> autoDetectProjects() {
+  std::vector<std::string> Found;
+
+  SmallString<256> Cwd;
+  if (sys::fs::current_path(Cwd)) return Found;
+
+  // 1. Remonter depuis le dossier courant pour trouver Maraset.yaml
+  SmallString<256> Dir(Cwd);
+  for (int Depth = 0; Depth < 6; ++Depth) {
+    SmallString<256> Yaml(Dir);
+    sys::path::append(Yaml, "Maraset.yaml");
+    if (sys::fs::exists(Yaml)) {
+      Found.push_back(std::string(Dir));
+      return Found;
+    }
+    SmallString<256> Parent(Dir);
+    sys::path::remove_filename(Parent);
+    if (Parent == Dir) break; // racine du systeme
+    Dir = Parent;
+  }
+
+  // 2. Scanner le dossier courant pour des projets .marep / .slul
+  std::error_code EC;
+  sys::fs::directory_iterator It(std::string(Cwd), EC), End;
+  for (; It != End && !EC; It.increment(EC)) {
+    StringRef Entry = It->path();
+    sys::fs::file_status St;
+    sys::fs::status(Entry, St);
+    if (St.type() != sys::fs::file_type::directory_file) continue;
+
+    // Verifier si c'est un .marep ou .slul avec Maraset.yaml
+    StringRef Name = sys::path::filename(Entry);
+    if (!Name.ends_with(".marep") && !Name.ends_with(".slul")) continue;
+
+    SmallString<256> Yaml(Entry);
+    sys::path::append(Yaml, "Maraset.yaml");
+    if (sys::fs::exists(Yaml))
+      Found.push_back(std::string(Entry));
+  }
+
+  return Found;
+}
+
+// ---------------------------------------------------------------------------
 // build — public entry point
 // ---------------------------------------------------------------------------
 
 std::vector<BuildResult>
 Builder::build(const std::vector<std::string> &Projects) {
   std::vector<BuildResult> Results;
+
+  // Si aucun projet specifie, detecter depuis le dossier courant
+  std::vector<std::string> Targets = Projects;
+  if (Targets.empty()) {
+    Targets = autoDetectProjects();
+    if (Targets.empty()) {
+      BuildResult R;
+      R.ProjectPath = ".";
+      R.ErrorMsg = "Aucun projet .marep / .slul trouve dans le dossier courant "
+                   "ou ses parents.\n"
+                   "         Positionnez-vous dans un dossier contenant Maraset.yaml\n"
+                   "         ou passez le chemin : marai build MonApp.marep";
+      Results.push_back(std::move(R));
+      return Results;
+    }
+    outs() << "  Projet detecte automatiquement : " << Targets.size()
+           << " bundle(s)\n\n";
+  }
 
   std::string Compiler = resolveCompiler();
   if (Compiler.empty()) {
@@ -392,12 +459,11 @@ Builder::build(const std::vector<std::string> &Projects) {
   if (Opts.Verbose)
     outs() << "  Compilateur : " << Compiler << "\n\n";
 
-  for (const auto &P : Projects) {
-    // Validate: must be an existing directory with Maraset.yaml
+  for (const auto &P : Targets) {
     if (!sys::fs::is_directory(P)) {
       BuildResult R;
       R.ProjectPath = P;
-      R.ErrorMsg = "n'est pas un répertoire de projet (.marep/.slul)";
+      R.ErrorMsg = "n'est pas un repertoire de projet (.marep/.slul)";
       Results.push_back(std::move(R));
       continue;
     }
